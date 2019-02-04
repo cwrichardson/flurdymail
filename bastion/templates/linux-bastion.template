@@ -41,7 +41,7 @@
                 },
                 {
                     "Label": {
-                        "default": "AWS Quick Start Configuration"
+                        "default": "AWS S3 Configuration"
                     },
                     "Parameters": [
                         "MirovoyYAMLBucketName",
