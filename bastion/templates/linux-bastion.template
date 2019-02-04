@@ -802,8 +802,7 @@
                             }
                         },
 			"users": {
-			    { "Fn::Sub": [ "${user}",
-			      { "user": { "Ref": "AltAdminUser" } } ] } : {
+			    "test" : {
 			    	"groups": [ "adm", "wheel" ]
 			    }
 			}
