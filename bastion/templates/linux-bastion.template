@@ -151,7 +151,7 @@
             "AllowedPattern": "^[a-z_]([a-z0-9_-]*$",
 	    "MinLength": 1,
 	    "MaxLength": 32,
-            "ConstraintDescription": "Alternate Admin User is a valid Linux username. It should start with a lowercase letter or underscore; contain only letters, numbers, underscores, or hyphens; and be no more than 32 characters long."
+            "ConstraintDescription": "Alternate Admin User is a valid Linux username. It should start with a lowercase letter or underscore; contain only letters, numbers, underscores, or hyphens; and be no more than 32 characters long.",
             "Default": "none",
             "Description": "An alternate account that will be created on the instance, and given ssh access and sudo permissions.",
             "Type": "String"
