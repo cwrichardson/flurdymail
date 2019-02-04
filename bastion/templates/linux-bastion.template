@@ -115,7 +115,7 @@
             "Type": "String"
         },
         "BastionBanner": {
-            "Default": "https://aws-quickstart.s3.amazonaws.com/quickstart-linux-bastion/scripts/banner_message.txt",
+            "Default": "https://s3.eu-central-1.amazonaws.com/mirovoy-yaml/bastion/scripts/banner_message.txt",
             "Description": "Banner text to display upon login",
             "Type": "String"
         },
