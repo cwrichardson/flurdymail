@@ -148,7 +148,7 @@
             "Type": "String"
         },
         "AltAdminUser": {
-            "AllowedPattern": "^[a-z_]([a-z0-9_-]*$",
+            "AllowedPattern": "^[a-z_][a-z0-9_-]*$",
 	    "MinLength": 1,
 	    "MaxLength": 32,
             "ConstraintDescription": "Alternate Admin User is a valid Linux username. It should start with a lowercase letter or underscore; contain only letters, numbers, underscores, or hyphens; and be no more than 32 characters long.",
