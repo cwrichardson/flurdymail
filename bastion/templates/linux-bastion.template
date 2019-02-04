@@ -22,7 +22,7 @@
                     "Parameters": [
                         "KeyPairName",
                         "BastionAMIOS",
-                        "BastionInstanceType"
+                        "BastionInstanceType",
 			"AltAdminUser"
                     ]
                 },
