@@ -802,7 +802,7 @@
                             }
                         },
 			"users": {
-			    "Ref": "AltAdminUser": {
+			    { "Ref": "AltAdminUser" } : {
 			    	"groups": [ "adm", "wheel" ]
 			    }
 			}
