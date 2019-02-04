@@ -278,7 +278,7 @@
     "Mappings": {
         "AWSAMIRegionMap": {
             "AMI": {
-		"MRVYAMZNLINUX": "amzn2-ami-hvm-2.0.20190115-x86_64-gp2"
+		"MRVYAMZNLINUX": "amzn2-ami-hvm-2.0.20190115-x86_64-gp2",
                 "AMZNLINUXHVM": "amzn-ami-hvm-2018.03.0.20181129-x86_64-gp2",
                 "CENTOS7HVM": "CentOS Linux 7 x86_64 HVM EBS ENA 1805_01-b7ee8a69-ee97-4a49-9e68-afaee216db2e-ami-77ec9308.4",
                 "US1404HVM": "ubuntu/images/hvm-ssd/ubuntu-trusty-14.04-amd64-server-20181022",
