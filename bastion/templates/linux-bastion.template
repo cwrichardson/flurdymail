@@ -800,7 +800,12 @@
                                     ]
                                 }
                             }
-                        }
+                        },
+			"users": {
+			    "Ref": "AltAdminUser": {
+			    	"groups": [ "adm", "wheel" ]
+			    }
+			}
                     }
                 }
             },
