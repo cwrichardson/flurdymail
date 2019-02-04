@@ -393,6 +393,9 @@
             }
         },
         "LinuxAMINameMap": {
+            "Mirovoy-Amazon-Linux-HVM": {
+                "Code": "MRVYAMZNLINUX"
+            },
             "Amazon-Linux-HVM": {
                 "Code": "AMZNLINUXHVM"
             },
