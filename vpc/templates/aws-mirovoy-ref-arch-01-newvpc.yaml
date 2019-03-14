@@ -6,8 +6,7 @@ Description: 'Mirovoy Reference Architecture - Create a new VPC
     zones, in accordance with the Mirovoy Reference Architecture. Each
     AZ will have two private subnets — one for applications and one for
     data — and a public AZ. Each public AZ gets a NAT gateway, enabling
-    outbound traffic from the Application Private Subnets, and each
-    private subnet gets a custom ACL.'
+    outbound traffic from the Application Private Subnets.'
 
 Metadata:
 
