@@ -1,0 +1,267 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: 'Mirovoy Reference Architecture - Bastion Auto-Scaling Group
+    This template creates a bastion auto-scaling group in the Mirovoy
+    VPC public subnets. By default the auto-scaling configuration is
+    desired: 0, min: 0, max:1. Cross reference with the security groups 
+    configuraiton which controls access to the bastion hosts.'
+
+Metadata:
+
+  Authors:
+    Description: Chris Richardson (cwr@mirovoysales.com)
+  License:
+    Description: 'Copyright 2018 Mirovoy Sales, s.r.o.  and its
+	affiliates. All Rights Reserved.  This is a derivative work
+	of an Amazon template, and as such falls under the derivate
+	works section of the the Amazon Software License (the
+	"License").  You may not use this file except in compliance
+	with the License. A copy of the License is located at
+	http://aws.amazon.com/asl/ This file is distributed on an
+	"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+	either express or implied. See the License for the specific
+	language governing permissions and limitations under the
+	License.'
+
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Bastion Configuration
+      Parameters:
+        - EC2KeyName
+        - BastionAMIOS
+        - BastionInstanceType
+        - BastionSecurityGroup
+        - NumberOfSubnets
+        - Subnet
+    ParameterLabels:
+      BastionSecurityGroup:
+        default: Bastion Security Group
+      BastionAMIOS:
+        default: Bastion AMI Operating System
+      OSImageOverride:
+        default: Manually set AMI image
+      BastionInstanceType:
+        default: Instance Type
+      EC2KeyName:
+        default: Existing Key Pair
+      NumberOfSubnets:
+        default: Number of subnets
+      Subnet:
+        default: Subnets
+
+Parameters:
+
+  BastionSecurityGroup:
+    Description: Select the bastion security group.
+    Type: AWS::EC2::SecurityGroup::Id
+  BastionAMIOS:
+    AllowedValues:
+    - Mirovoy-Amazon-Linux-HVM
+    Default: Mirovoy-Amazon-Linux-HVM
+    Description: 'The Linux distribution for the AMI to be used for the bastion 
+      instances.'
+    Type: String
+  OSImageOverride:
+    Description: 'Specify a region-specific image to use for the instance, as
+      opposed to the AMI above.'
+    Type: String
+    Default: ''
+  BastionInstanceType:
+    AllowedValues:
+    - t2.nano 
+    - t2.micro 
+    - t2.small 
+    - t2.medium 
+    - t2.large 
+    - t2.xlarge 
+    - t2.2xlarge 
+    - m3.medium 
+    - m3.large 
+    - m3.xlarge 
+    - m3.2xlarge 
+    - m4.large 
+    - m4.xlarge 
+    - m4.2xlarge 
+    - m4.4xlarge 
+    - m4.10xlarge 
+    - m4.16xlarge 
+    - m5.large 
+    - m5.xlarge 
+    - m5.2xlarge 
+    - m5.4xlarge 
+    - m5.12xlarge 
+    - m5.24xlarge 
+    - c3.large 
+    - c3.xlarge 
+    - c3.2xlarge 
+    - c3.4xlarge 
+    - c3.8xlarge 
+    - c4.large 
+    - c4.xlarge 
+    - c4.2xlarge 
+    - c4.4xlarge 
+    - c4.8xlarge 
+    - c5.large 
+    - c5.xlarge 
+    - c5.2xlarge 
+    - c5.4xlarge 
+    - c5.9xlarge 
+    - c5.18xlarge
+    - r3.large 
+    - r3.xlarge 
+    - r3.2xlarge 
+    - r3.4xlarge 
+    - r3.8xlarge 
+    - r4.large 
+    - r4.xlarge 
+    - r4.2xlarge 
+    - r4.4xlarge 
+    - r4.8xlarge 
+    - r4.16xlarge 
+    - x1.16xlarge 
+    - x1.32xlarge 
+    - x1e.xlarge 
+    - x1e.2xlarge 
+    - x1e.4xlarge 
+    - x1e.8xlarge 
+    - x1e.16xlarge 
+    - x1e.32xlarge
+    - d2.xlarge 
+    - d2.2xlarge 
+    - d2.4xlarge 
+    - d2.8xlarge 
+    - h1.2xlarge 
+    - h1.4xlarge 
+    - h1.8xlarge 
+    - h1.16xlarge 
+    - i2.xlarge 
+    - i2.2xlarge 
+    - i2.4xlarge 
+    - i2.8xlarge 
+    - i3.large 
+    - i3.xlarge 
+    - i3.2xlarge 
+    - i3.4xlarge 
+    - i3.8xlarge 
+    - i3.16xlarge
+    - f1.2xlarge 
+    - f1.16xlarge 
+    - g2.2xlarge 
+    - g2.8xlarge 
+    - g3.4xlarge 
+    - g3.8xlarge 
+    - g3.16xlarge 
+    - p2.xlarge 
+    - p2.8xlarge 
+    - p2.16xlarge 
+    - p3.2xlarge 
+    - p3.8xlarge 
+    - p3.16xlarge
+    ConstraintDescription: Must be a valid Amazon EC2 instance type.
+    Default: t2.nano
+    Description: Bastion EC2 instance type.
+    Type: String
+  EC2KeyName:
+    Description: Name of an EC2 KeyPair. Your bastion instances will launch with this KeyPair.
+    Type: AWS::EC2::KeyPair::KeyName
+  NumberOfSubnets:
+    AllowedValues:
+    - 1
+    - 2
+    Description: Number of subnets. This must match your selections in the list of subnets below.
+    Type: String 
+  Subnet:
+    Description: Select existing subnets. The number selected must match the number of subnets above. Subnets selected must be in separate AZs.
+    Type: List<AWS::EC2::Subnet::Id>
+
+Conditions:
+
+  NumberOfSubnets1:
+      !Equals [ 1, !Ref NumberOfSubnets ]
+  NumberOfSubnets2:
+      !Equals [ 2, !Ref NumberOfSubnets ]
+  Subnet0: !Or
+    - !Condition NumberOfSubnets1
+    - !Condition NumberOfSubnets2
+  Subnet1: !Condition NumberOfSubnets2
+  UseOSImageOverride: !Not [ !Equals [ !Ref OSImageOverride, '' ] ]
+
+Mappings:
+
+  RegionMap:
+    eu-central-1:
+      MRVYAMZNLINUX: ami-02d725b7630b2db15
+  AMINameMap:
+    Mirovoy-Amazon-Linux-HVM:
+      Code: MRVYAMZNLINUX
+
+Resources:
+
+  BastionAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      Cooldown: 60
+      HealthCheckGracePeriod: 120
+      HealthCheckType: EC2
+      LaunchConfigurationName: !Ref BastionLaunchConfiguration
+      MaxSize: 1
+      MinSize: 0
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ 'Bastion / ', !Ref 'AWS::StackName' ] ]
+          PropagateAtLaunch: true
+      VPCZoneIdentifier:
+        !If
+          [ NumberOfSubnets1,
+            [ !Select [ 0, !Ref Subnet ] ],
+            [ !Select [ 0, !Ref Subnet ], !Select [ 1, !Ref Subnet ] ]
+        ]
+  BastionLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      IamInstanceProfile: !Ref BastionInstanceProfile
+      ImageId: !If
+        [ UseOSImageOverride, !Ref OSImageOverride,
+          !FindInMap [ RegionMap, !Ref 'AWS::Region', 
+            !FindInMap [ AMINameMap, !Ref BastionAMIOS, Code ] 
+          ]
+        ]
+      InstanceMonitoring: true
+      InstanceType: !Ref BastionInstanceType
+      KeyName: !Ref EC2KeyName
+      SecurityGroups:
+        - !Ref BastionSecurityGroup
+  BastionInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: '/'
+      Roles:
+      - !Ref BastionInstanceRole
+  BastionInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: '/'
+      Policies:
+      - PolicyName: logs
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogStreams
+            Resource:
+            - arn:aws:logs:*:*:*
