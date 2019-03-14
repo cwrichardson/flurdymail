@@ -35,19 +35,28 @@ Metadata:
         - BastionSecurityGroup
         - NumberOfSubnets
         - Subnet
+    - Label:
+        default: AWS S3 Configuration
+      Parameters:
+        - MirovoyCFAssetsBucket
+        - MYS3KeyPrefix
     ParameterLabels:
-      BastionSecurityGroup:
-        default: Bastion Security Group
       BastionAMIOS:
         default: Bastion AMI Operating System
-      OSImageOverride:
-        default: Manually set AMI image
       BastionInstanceType:
         default: Instance Type
+      BastionSecurityGroup:
+        default: Bastion Security Group
       EC2KeyName:
         default: Existing Key Pair
+      MirovoyCFAssetsBucket:
+        default: Mirovvoy CloudFront Assets S3 bucket name
+      MYS3KeyPrefix:
+        default: Mirovoy CloudFront Assets Bastion S3 bucket key prefix
       NumberOfSubnets:
         default: Number of subnets
+      OSImageOverride:
+        default: Manually set AMI image
       Subnet:
         default: Subnets
 
@@ -175,9 +184,34 @@ Parameters:
   Subnet:
     Description: Select existing subnets. The number selected must match the number of subnets above. Subnets selected must be in separate AZs.
     Type: List<AWS::EC2::Subnet::Id>
+  MirovoyCFAssetsBucket:
+    AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
+    ConstraintDescription: 'Mirovoy CloudFront Assets Bucket name can include 
+      numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot 
+      start or end with a hyphen (-).'
+    Default: "mirovoy-cf-assets"
+    Description: 'S3 bucket name for the Mirovoy CloudFormation assets.'
+    Type: String
+  MYS3KeyPrefix:
+    AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
+    ConstraintDescription: 'Mirovoy CloudFront Assets S3 bucket  key prefix 
+      can include numbers, lowercase letters, uppercase letters, hyphens (-), 
+      and forward slash (/). The prefix should end with a forward slash (/).'
+    Default: "bastion/"
+    Description: 'S3 key prefix for the Mirovoy CloudFormation assets. This 
+      should be the top-level directory path inside the bucket, leading to the 
+      assets for this template (e.g., scripts directory, etc... are located)'
+    Type: String
+  AlternativeIAMRole:
+    Description: 'Specify an existing IAM Role name to attach to the bastion. 
+      If left blank, a new role will be created.'
+    Default: ''
+    Type: String
 
 Conditions:
 
+  CreateIAMRole:
+      !Equals [ !Ref AlternativeIAMRole, '' ]
   NumberOfSubnets1:
       !Equals [ 1, !Ref NumberOfSubnets ]
   NumberOfSubnets2:
@@ -218,8 +252,58 @@ Resources:
             [ !Select [ 0, !Ref Subnet ] ],
             [ !Select [ 0, !Ref Subnet ], !Select [ 1, !Ref Subnet ] ]
         ]
+  BastionHostRole:
+    Condition: CreateIAMRole
+    Type: AWS::IAM::Role
+    Properties:
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+  BastionHostPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "BastionPolicy"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: "Allow"
+            Action:
+              - "s3:GetObject"
+            Resource: "arn:aws:s3:::${MirovoyCFAssetsBucket}/${MYS3KeyPrefix}*"
+          -
+            Effect: "Allow"
+            Action:
+              - "ec2:AssociateAddress"
+              - "ec2:DescribeAddress"
+            Resource: "*"
+      Roles:
+       -
+         !If [ CreateIAMRole, !Ref BastionHostRole, !Ref AlternativeIAMRole ]
+  BastionHostProfile:
+    DependsOn: BastionHostPolicy
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !If [ CreateIAMRole, !Ref BastionHostRole, !Ref AlternativeIAMRole ]
   BastionLaunchConfiguration:
     Type: AWS::AutoScaling::LaunchConfiguration
+    Metadata:
+      AWS::CloudFormation::Authentication:
+        S3AccessCreds:
+          type: "S3"
+          roleName: !If [
+            CreateIAMRole, !Ref BastionHostRole, !Ref AlternativeIAMRole ]
+          buckets: [ !Ref MirovoyCFAssetsBucket ]
     Properties:
       IamInstanceProfile: !Ref BastionInstanceProfile
       ImageId: !If
