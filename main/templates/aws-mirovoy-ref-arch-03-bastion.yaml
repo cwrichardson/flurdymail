@@ -62,6 +62,10 @@ Metadata:
 
 Parameters:
 
+  BastionBanner:
+    Default: "https://s3.eu-central-1.amazonaws.com/mirovoy-cf-assets/bastion/scripts/banner_message.txt"
+    Description: Banner text to display upon login
+    Type: String
   BastionSecurityGroup:
     Description: Select the bastion security group.
     Type: AWS::EC2::SecurityGroup::Id
@@ -175,6 +179,14 @@ Parameters:
   EC2KeyName:
     Description: Name of an EC2 KeyPair. Your bastion instances will launch with this KeyPair.
     Type: AWS::EC2::KeyPair::KeyName
+  EnableBanner:
+    AllowedValues:
+    - "true"
+    - "false"
+    Default: "false"
+    Description: 'To include a banner to be displayed when connecting via SSH
+      to the bastion, set this parameter to true.'
+    Type: String
   NumberOfSubnets:
     AllowedValues:
     - 1
@@ -207,6 +219,19 @@ Parameters:
       If left blank, a new role will be created.'
     Default: ''
     Type: String
+  EnvironmentVariables:
+    Description: 'Specify a comma separated list of environment variables for 
+      use in bootstrapping. Variables must be in the format KEY=VALUE. VALUE 
+      cannot contain commas.'
+    Default: ''
+    Type: String
+  AlternativeInitializationScript:
+    AllowedPattern: "^http.*|^$"
+    ConstraintDescription: 'URL must begin with "http".'
+    Description: 'Specify an alternative initialization script to run during
+      setup.'
+    Default: ""
+    Type: String
 
 Conditions:
 
@@ -220,6 +245,8 @@ Conditions:
     - !Condition NumberOfSubnets1
     - !Condition NumberOfSubnets2
   Subnet1: !Condition NumberOfSubnets2
+  UseAlternativeInitialization: !Not [ 
+    !Equals [ !Ref AlternativeInitializationScript, '' ] ]
   UseOSImageOverride: !Not [ !Equals [ !Ref OSImageOverride, '' ] ]
 
 Mappings:
@@ -252,6 +279,10 @@ Resources:
             [ !Select [ 0, !Ref Subnet ] ],
             [ !Select [ 0, !Ref Subnet ], !Select [ 1, !Ref Subnet ] ]
         ]
+  #
+  # Combined what were previously BastionHostRole and BastionInstanceRole
+  # because you are only allowed to assign one IAM Role per Instance Profile
+  #
   BastionHostRole:
     Condition: CreateIAMRole
     Type: AWS::IAM::Role
@@ -267,6 +298,19 @@ Resources:
                 - "ec2.amazonaws.com"
             Action:
               - "sts:AssumeRole"
+      Policies:
+      - PolicyName: logs
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogStreams
+            Resource:
+            - arn:aws:logs:*:*:*
   BastionHostPolicy:
     Type: AWS::IAM::Policy
     Properties:
@@ -278,7 +322,7 @@ Resources:
             Effect: "Allow"
             Action:
               - "s3:GetObject"
-            Resource: "arn:aws:s3:::${MirovoyCFAssetsBucket}/${MYS3KeyPrefix}*"
+            Resource: !Sub "arn:aws:s3:::${MirovoyCFAssetsBucket}/${MYS3KeyPrefix}*"
           -
             Effect: "Allow"
             Action:
@@ -304,8 +348,40 @@ Resources:
           roleName: !If [
             CreateIAMRole, !Ref BastionHostRole, !Ref AlternativeIAMRole ]
           buckets: [ !Ref MirovoyCFAssetsBucket ]
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            yum:
+              "ksh": []
+          files:
+            /tmp/bastion_bootstrap.sh:
+              source: !If [
+                UseAlternativeInitialization, 
+                !Ref AlternativeInitializationScript,
+                #
+                # Added AWS::Region to the URL, which deviates from the 
+                # QuickStart example, because without it, it falls back to 
+                # using an older authentication mechansim, which isn't 
+                # supported in all regions.
+                #
+                !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}.amazonaws.com/${MYS3KeyPrefix}scripts/bastion_bootstrap.sh" ]
+              mode: "000550"
+              owner: "root"
+              group: "root"
+              authenticaiton: S3AccessCreds
+          commands:
+            b-bootstrap:
+              command:
+                !Join [ "", [
+                  "./tmp/bastion_bootstrap.sh",
+                  " --banner ",
+                  !Ref BastionBanner,
+                  " --enable ",
+                  !Ref EnableBanner
+                  ]
+                ]
     Properties:
-      IamInstanceProfile: !Ref BastionInstanceProfile
+      IamInstanceProfile: !Ref BastionHostProfile
       ImageId: !If
         [ UseOSImageOverride, !Ref OSImageOverride,
           !FindInMap [ RegionMap, !Ref 'AWS::Region', 
@@ -317,35 +393,41 @@ Resources:
       KeyName: !Ref EC2KeyName
       SecurityGroups:
         - !Ref BastionSecurityGroup
-  BastionInstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      Path: '/'
-      Roles:
-      - !Ref BastionInstanceRole
-  BastionInstanceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-        - Effect: Allow
-          Principal:
-            Service:
-            - ec2.amazonaws.com
-          Action:
-          - sts:AssumeRole
-      Path: '/'
-      Policies:
-      - PolicyName: logs
-        PolicyDocument:
-          Version: 2012-10-17
-          Statement:
-          - Effect: Allow
-            Action:
-            - logs:CreateLogGroup
-            - logs:CreateLogStream
-            - logs:PutLogEvents
-            - logs:DescribeLogStreams
-            Resource:
-            - arn:aws:logs:*:*:*
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - |
+              #!/bin/bash -x
+            - |
+              #
+            - |
+              # update packages
+              yum update -y
+              # setup environment
+            - 'for e in $(echo "'
+            - !Ref EnvironmentVariables
+            - '" | tr "," " "); do'
+            - |
+                  
+                  export $e
+            - |
+              done
+              export PATH=$PATH:/usr/local/bin
+            - |
+              # install AWS CLI
+              which pip &> /dev/null
+              if [ $? -ne 0 ] ; then
+                  echo "PIP NOT INSTALLED"
+                  $(yum install -y epel-release; yum install -y python-pip) && echo "PIP INSTALLED"
+              fi
+              pip install --upgrade pip &> /dev/null
+              pip install awscli --ignore-installed six &> /dev/null
+              easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+            - |
+              # run cfn-init
+            - '/opt/aws/bin/cfn-init -v --stack '
+            - !Ref 'AWS::StackName'
+            - '		--resource BastionLaunchConfiguration '
+            - '		--region '
+            - !Ref 'AWS::Region'
+            - |+
