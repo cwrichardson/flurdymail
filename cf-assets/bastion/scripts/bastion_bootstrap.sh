@@ -1,6 +1,6 @@
 #!/bin/bash -e
 # Bastion Bootstrapping
-# authors: tonynv@amazon.com, sancard@amazon.com, ianhill@amazon.com
+# authors: tonynv@amazon.com, sancard@amazon.com, ianhill@amazon.com, cwr@mirovoysales.com
 # NOTE: This requires GNU getopt. On Mac OS X and FreeBSD you must install GNU getopt and mod the checkos function so that it's supported
 
 
@@ -415,15 +415,8 @@ while true; do
 done
 
 # BANNER CONFIGURATION
-BANNER_FILE="/etc/ssh_banner"
+BANNER_FILE="/etc/ssh/ssh_banner"
 if [[ ${ENABLE} == "true" ]];then
-    if [[ -z ${BANNER_PATH} ]];then
-        echo "BANNER_PATH is null skipping ..."
-    else
-        echo "BANNER_PATH = ${BANNER_PATH}"
-        echo "Creating Banner in ${BANNER_FILE}"
-        echo "curl  -s ${BANNER_PATH} > ${BANNER_FILE}"
-        curl  -s ${BANNER_PATH} > ${BANNER_FILE}
         if [[ -e ${BANNER_FILE} ]] ;then
             echo "[INFO] Installing banner ... "
             echo -e "\n Banner ${BANNER_FILE}" >>/etc/ssh/sshd_config
@@ -431,7 +424,6 @@ if [[ ${ENABLE} == "true" ]];then
             echo "[INFO] banner file is not accessible skipping ..."
             exit 1;
         fi
-    fi
 else
     echo "Banner message is not enabled!"
 fi

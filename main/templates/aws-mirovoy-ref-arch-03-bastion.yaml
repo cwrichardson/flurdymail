@@ -63,8 +63,8 @@ Metadata:
 Parameters:
 
   BastionBanner:
-    Default: "https://s3.eu-central-1.amazonaws.com/mirovoy-cf-assets/bastion/scripts/banner_message.txt"
-    Description: Banner text to display upon login
+    Default: "var/banner_message.txt"
+    Description: 'Path and file under S3 prefix for Banner text to display upon login. Should not start with a "/".'
     Type: String
   BastionSecurityGroup:
     Description: Select the bastion security group.
@@ -369,6 +369,12 @@ Resources:
               owner: "root"
               group: "root"
               authenticaiton: S3AccessCreds
+            /etc/ssh/ssh_banner:
+              source: !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}.amazonaws.com/${MYS3KeyPrefix}${BastionBanner}"
+              mode: "000640"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
           commands:
             b-bootstrap:
               command:
