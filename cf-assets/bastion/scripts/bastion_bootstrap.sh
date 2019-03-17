@@ -244,6 +244,8 @@ EOF
     if [[ "${release}" == "CentOS" ]]; then
         restorecon -v /etc/ssh/sshd_config
         systemctl restart sshd
+    elif [[ "${release}" == "AMZN" ]]; then
+        systemctl restart sshd
     fi
 
     if [[ "${release}" == "SLES" ]]; then
