@@ -3,8 +3,7 @@ AWSTemplateFormatVersion: 2010-09-09
 
 Description: 'Mirovoy Reference Architecture - Create Security Groups
     This template creates the security groups to secure the Mirovoy Reference 
-    Architecture. 
-    * Confiure subnet from which you can access bastion hosts.'
+    Architecture.'
 
 Metadata:
 
@@ -62,6 +61,29 @@ Resources:
       VpcId:
         !Ref Vpc
 
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS Databases
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+# must have CIDR or Security Group in order to declare. Once we have
+# application servers that need to talk to the DBs, remove this CIDR
+# reference and use SourceSecurityGroupId instead — with a separate
+# SecurityGroupIngress block for each application server type
+#SourceSecurityGroupId: !Ref MailSecurityGroup
+          CidrIp: 10.0.0.0/20
+      VpcId:
+        !Ref Vpc
+
 Outputs:
   BastionSecurityGroup:
     Value: !Ref BastionSecurityGroup
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", BastionSecurityGroup ] ]
+  DatabaseSecurityGroup:
+    Value: !Ref DatabaseSecurityGroup
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", DatabaseSecurityGroup ] ]
