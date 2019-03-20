@@ -1,0 +1,435 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: "Mirovoy Reference Architecture - Create mail storage
+    This template creates EBS storage for the mail servers. At a minimum, 
+    it creates 4 volumes: one for /var/spool (actual mail) and one for 
+    /var/log, for primary and backup MX. Optionally also creates volumes for
+    swap, which we use as we don't have enough mail to justify a higher-end 
+    server."
+
+Metadata:
+
+  Authors:
+    Description: Chris Richardson (cwr@mirovoysales.com)
+  License:
+    Description: 'Copyright 2018 Mirovoy Sales, s.r.o.  and its
+	affiliates. All Rights Reserved.  This is a derivative work
+	of an Amazon template, and as such falls under the derivate
+	works section of the the Amazon Software License (the
+	"License").  You may not use this file except in compliance
+	with the License. A copy of the License is located at
+	http://aws.amazon.com/asl/ This file is distributed on an
+	"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+	either express or implied. See the License for the specific
+	language governing permissions and limitations under the
+	License.'
+
+  AWS::CloudFormation::Interface:
+
+    ParameterGroups:
+    - Label:
+        default: Mail Server EBS Parameters
+      Parameters:
+        - Encrypted
+        - LogSize
+        - SpoolSize
+        - CreateSwap
+        - SwapSize
+        - LogDelPolicy
+        - SpoolDelPolicy
+        - Cmk
+        - PrimaryAZ
+        - BackupAZ
+    - Label:
+        default: Restore from Snapshots
+      Parameters:
+        - MasterSpoolSnapshot
+        - MasterLogSnapshot
+        - BackupSpoolSnapshot
+        - BackupLogSnapshot
+    ParameterLabels:
+      EncryptedBoolean:
+        default: Encryption state
+      LogSize:
+        default: Size for /var/log
+      SpoolSize:
+        default: Size for /var/spool
+      CreateSwap:
+        default: Create swap devices?
+      SwapSize:
+        default: Size for swap
+      MasterSpoolSnapshot:
+        default: Snapshot ID from which to create volume /var/spool for master
+      MasterLogSnapshot:
+        default: Snapshot ID from which to create volume /var/log for master
+      BackupSpoolSnapshot:
+        default: Snapshot ID from which to create volume /var/spool for backup
+      BackupLogSnapshot:
+        default: Snapshot ID from which to create volume /var/log for master
+      LogDelPolicy:
+        default: What to do with Log on stack deletion
+      SpoolDelPolicy:
+        default: What to do with Spool on stack deletion
+      Cmk:
+        default: KMS Key
+      PrimaryAZ:
+        default: Availability zone for primary MX
+      BackupAZ:
+        default: Availability zone for backup MX
+
+
+Parameters:
+
+  EncryptedBoolean:
+    AllowedValues:
+      - True
+      - False
+    Default: True
+    Description: Create an encrypted Amazon EBS Volume
+    Type: String
+  LogSize:
+    ConstraintDescription: Must be an integer.
+    Default: 2
+    Description: Size (in GB) for device to mount on /var/log
+    MaxValue: 16384
+    MinValue: 1
+    Type: Number
+  SpoolSize:
+    ConstraintDescription: Must be an integer.
+    Default: 10
+    Description: Size (in GB) for device to mount on /var/spool
+    MaxValue: 16384
+    MinValue: 1
+    Type: Number
+  MasterSpoolSnapshot:
+    Description: The snapshot name from which to restore /var/spool for the master mail server
+    Type: String
+  MasterLogSnapshot:
+    Description: The snapshot name from which to restore /var/log for the master mail server
+    Type: String
+  BackupSpoolSnapshot:
+    Description: The snapshot name from which to restore /var/spool for the backup mail server
+    Type: String
+  BackupLogSnapshot:
+    Description: The snapshot name from which to restore /var/log for the backup mail server
+    Type: String
+  CreateSwap:
+    AllowedValues:
+      - True
+      - False
+    Default: True
+    Description: Create an encrypted Amazon EBS Volume
+    Type: String
+  SwapSize:
+    ConstraintDescription: Must be an integer.
+    Default: 2
+    Description: Size (in GB) for device to mount on /var/spool
+    MaxValue: 16384
+    MinValue: 1
+    Type: Number
+  SpoolDelPolicy:
+    AllowedValues:
+    - Delete
+    - Retain
+    - Snapshot
+    Default: Retain
+    Description: What to do with the spool volumes when the stack is deleted.
+    Type: String
+  LogDelPolicy:
+    AllowedValues:
+    - Delete
+    - Retain
+    - Snapshot
+    Default: Delete
+    Description: What to do with the log volumes when the stack is deleted.
+    Type: String
+  Cmk:
+    Description: An existing AWS KMS Customer Master Key (CMK) to encrypt file system
+    Type: String
+  PrimaryAZ:
+    Description: Availability zone in which to create the volumes for the primary mail server.
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+  BackupAZ:
+    Description: Availability zone in which to create the volumes for the backup mail server.
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+
+Conditions:
+  
+  CreateSwapVolumes:
+    !Equals [True, !Ref CreateSwap]
+  NoMasterSpoolSnapshot:
+    !Equals ['', !Ref MasterSpoolSnapshot]
+  NoMasterLogSnapshot:
+    !Equals ['', !Ref MasterLogSnapshot]
+  NoBackupSpoolSnapshot:
+    !Equals ['', !Ref BackupSpoolSnapshot]
+  NoBackupLogSnapshot:
+    !Equals ['', !Ref BackupLogSnapshot]
+  UseAWS-ManagedCMK:
+    !Equals ['', !Ref Cmk]
+#
+# This is stupid and gross, but the DeletionPolicy parameter only accepts a 
+# literal string, so the only way to change it is to duplicate all of the
+# block and use conditions :(
+#
+  SnapshotSpool:
+    !Equals ['Snapshot', !Ref SpoolDelPolicy]
+  RetainSpool:
+    !Equals ['Retain', !Ref SpoolDelPolicy]
+  DeleteSpool:
+    !Equals ['Delete', !Ref SpoolDelPolicy]
+  SnapshotLog:
+    !Equals ['Snapshot', !Ref LogDelPolicy]
+  RetainLog:
+    !Equals ['Retain', !Ref LogDelPolicy]
+  DeleteLog:
+    !Equals ['Delete', !Ref LogDelPolicy]
+
+Resources:
+
+  MasterSpoolEBS:
+    Type: AWS::EC2::Volume
+    Condition: SnapshotSpool
+    Properties:
+      AvailabilityZone: !Select [ 0, !Ref PrimaryAZ ]
+      Encrypted: !Ref EncryptedBoolean
+      KmsKeyId:
+        !If [ UseAWS-ManagedCMK, !Ref 'AWS::NoValue', !Ref Cmk ]
+      Size: !Ref SpoolSize
+      SnapshotId: !If [ NoMasterSpoolSnapshot, !Ref 'AWS::NoValue',
+        !Ref MasterSpoolSnapshot ]
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ !Ref 'AWS::StackName', ' / MasterSpoolEBS ' ] ]
+      VolumeType: gp2
+    DeletionPolicy: Snapshot
+
+  MasterSpoolEBS:
+    Type: AWS::EC2::Volume
+    Condition: RetainSpool
+    Properties:
+      AvailabilityZone: !Select [ 0, !Ref PrimaryAZ ]
+      Encrypted: !Ref EncryptedBoolean
+      KmsKeyId:
+        !If [ UseAWS-ManagedCMK, !Ref 'AWS::NoValue', !Ref Cmk ]
+      Size: !Ref SpoolSize
+      SnapshotId: !If [ NoMasterSpoolSnapshot, !Ref 'AWS::NoValue',
+        !Ref MasterSpoolSnapshot ]
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ !Ref 'AWS::StackName', ' / MasterSpoolEBS ' ] ]
+      VolumeType: gp2
+    DeletionPolicy: Retain
+
+  MasterSpoolEBS:
+    Type: AWS::EC2::Volume
+    Condition: DeleteSpool
+    Properties:
+      AvailabilityZone: !Select [ 0, !Ref PrimaryAZ ]
+      Encrypted: !Ref EncryptedBoolean
+      KmsKeyId:
+        !If [ UseAWS-ManagedCMK, !Ref 'AWS::NoValue', !Ref Cmk ]
+      Size: !Ref SpoolSize
+      SnapshotId: !If [ NoMasterSpoolSnapshot, !Ref 'AWS::NoValue',
+        !Ref MasterSpoolSnapshot ]
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ !Ref 'AWS::StackName', ' / MasterSpoolEBS ' ] ]
+      VolumeType: gp2
+    DeletionPolicy: Delete
+
+  MasterLogEBS:
+    Type: AWS::EC2::Volume
+    Condition: SnapshotLog
+    Properties:
+      AvailabilityZone: !Select [ 0, !Ref PrimaryAZ ]
+      Encrypted: !Ref EncryptedBoolean
+      KmsKeyId:
+        !If [ UseAWS-ManagedCMK, !Ref 'AWS::NoValue', !Ref Cmk ]
+      Size: !Ref LogSize
+      SnapshotId: !If [ NoMasterLogSnapshot, !Ref 'AWS::NoValue',
+        !Ref MasterLogSnapshot ]
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ !Ref 'AWS::StackName', ' / MasterLogEBS ' ] ]
+      VolumeType: gp2
+    DeletionPolicy: Snapshot
+
+  MasterLogEBS:
+    Type: AWS::EC2::Volume
+    Condition: RetainLog
+    Properties:
+      AvailabilityZone: !Select [ 0, !Ref PrimaryAZ ]
+      Encrypted: !Ref EncryptedBoolean
+      KmsKeyId:
+        !If [ UseAWS-ManagedCMK, !Ref 'AWS::NoValue', !Ref Cmk ]
+      Size: !Ref LogSize
+      SnapshotId: !If [ NoMasterLogSnapshot, !Ref 'AWS::NoValue',
+        !Ref MasterLogSnapshot ]
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ !Ref 'AWS::StackName', ' / MasterLogEBS ' ] ]
+      VolumeType: gp2
+    DeletionPolicy: Retain
+
+  MasterLogEBS:
+    Type: AWS::EC2::Volume
+    Condition: DeleteLog
+    Properties:
+      AvailabilityZone: !Select [ 0, !Ref PrimaryAZ ]
+      Encrypted: !Ref EncryptedBoolean
+      KmsKeyId:
+        !If [ UseAWS-ManagedCMK, !Ref 'AWS::NoValue', !Ref Cmk ]
+      Size: !Ref LogSize
+      SnapshotId: !If [ NoMasterLogSnapshot, !Ref 'AWS::NoValue',
+        !Ref MasterLogSnapshot ]
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ !Ref 'AWS::StackName', ' / MasterLogEBS ' ] ]
+      VolumeType: gp2
+    DeletionPolicy: Delete
+
+  BackupSpoolEBS:
+    Type: AWS::EC2::Volume
+    Condition: SnapshotSpool
+    Properties:
+      AvailabilityZone: !Select [ 0, !Ref BackupAZ ]
+      Encrypted: !Ref EncryptedBoolean
+      KmsKeyId:
+        !If [ UseAWS-ManagedCMK, !Ref 'AWS::NoValue', !Ref Cmk ]
+      Size: !Ref SpoolSize
+      SnapshotId: !If [ NoBackupSpoolSnapshot, !Ref 'AWS::NoValue',
+        !Ref BackupSpoolSnapshot ]
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ !Ref 'AWS::StackName', ' / BackupSpoolEBS ' ] ]
+      VolumeType: gp2
+    DeletionPolicy: Snapshot
+
+  BackupSpoolEBS:
+    Type: AWS::EC2::Volume
+    Condition: RetainSpool
+    Properties:
+      AvailabilityZone: !Select [ 0, !Ref BackupAZ ]
+      Encrypted: !Ref EncryptedBoolean
+      KmsKeyId:
+        !If [ UseAWS-ManagedCMK, !Ref 'AWS::NoValue', !Ref Cmk ]
+      Size: !Ref SpoolSize
+      SnapshotId: !If [ NoBackupSpoolSnapshot, !Ref 'AWS::NoValue',
+        !Ref BackupSpoolSnapshot ]
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ !Ref 'AWS::StackName', ' / BackupSpoolEBS ' ] ]
+      VolumeType: gp2
+    DeletionPolicy: Retain
+
+  BackupSpoolEBS:
+    Type: AWS::EC2::Volume
+    Condition: DeleteSpool
+    Properties:
+      AvailabilityZone: !Select [ 0, !Ref BackupAZ ]
+      Encrypted: !Ref EncryptedBoolean
+      KmsKeyId:
+        !If [ UseAWS-ManagedCMK, !Ref 'AWS::NoValue', !Ref Cmk ]
+      Size: !Ref SpoolSize
+      SnapshotId: !If [ NoBackupSpoolSnapshot, !Ref 'AWS::NoValue',
+        !Ref BackupSpoolSnapshot ]
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ !Ref 'AWS::StackName', ' / BackupSpoolEBS ' ] ]
+      VolumeType: gp2
+    DeletionPolicy: Delete
+
+  BackupLogEBS:
+    Type: AWS::EC2::Volume
+    Condition: SnapshotLog
+    Properties:
+      AvailabilityZone: !Select [ 0, !Ref BackupAZ ]
+      Encrypted: !Ref EncryptedBoolean
+      KmsKeyId:
+        !If [ UseAWS-ManagedCMK, !Ref 'AWS::NoValue', !Ref Cmk ]
+      Size: !Ref LogSize
+      SnapshotId: !If [ NoBackupLogSnapshot, !Ref 'AWS::NoValue',
+        !Ref BackupLogSnapshot ]
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ !Ref 'AWS::StackName', ' / BackupLogEBS ' ] ]
+      VolumeType: gp2
+    DeletionPolicy: Snapshot
+
+  BackupLogEBS:
+    Type: AWS::EC2::Volume
+    Condition: RetainLog
+    Properties:
+      AvailabilityZone: !Select [ 0, !Ref BackupAZ ]
+      Encrypted: !Ref EncryptedBoolean
+      KmsKeyId:
+        !If [ UseAWS-ManagedCMK, !Ref 'AWS::NoValue', !Ref Cmk ]
+      Size: !Ref LogSize
+      SnapshotId: !If [ NoBackupLogSnapshot, !Ref 'AWS::NoValue',
+        !Ref BackupLogSnapshot ]
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ !Ref 'AWS::StackName', ' / BackupLogEBS ' ] ]
+      VolumeType: gp2
+    DeletionPolicy: Retain
+
+  BackupLogEBS:
+    Type: AWS::EC2::Volume
+    Condition: DeleteLog
+    Properties:
+      AvailabilityZone: !Select [ 0, !Ref BackupAZ ]
+      Encrypted: !Ref EncryptedBoolean
+      KmsKeyId:
+        !If [ UseAWS-ManagedCMK, !Ref 'AWS::NoValue', !Ref Cmk ]
+      Size: !Ref LogSize
+      SnapshotId: !If [ NoBackupLogSnapshot, !Ref 'AWS::NoValue',
+        !Ref BackupLogSnapshot ]
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ !Ref 'AWS::StackName', ' / BackupLogEBS ' ] ]
+      VolumeType: gp2
+    DeletionPolicy: Delete
+
+  MasterSwapEBS:
+    Type: AWS::EC2::Volume
+    Condition: CreateSwapVolumes
+    Properties:
+      AvailabilityZone: !Select [ 0, !Ref PrimaryAZ ]
+      Encrypted: False
+      Size: !Ref SwapSize
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ !Ref 'AWS::StackName', ' / MasterSwapEBS ' ] ]
+      VolumeType: gp2
+    DeletionPolicy: Delete
+
+  BackupSwapEBS:
+    Type: AWS::EC2::Volume
+    Condition: CreateSwapVolumes
+    Properties:
+      AvailabilityZone: !Select [ 0, !Ref BackupAZ ]
+      Encrypted: False
+      Size: !Ref SwapSize
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ !Ref 'AWS::StackName', ' / BackupSwapEBS ' ] ]
+      VolumeType: gp2
+    DeletionPolicy: Delete
+
+Outputs:
+  MasterSpoolEBS:
+    Value: !Ref MasterSpoolEBS
+  MasterLogEBS:
+    Value: !Ref MasterLogEBS
+  MasterSwap:
+    Condition: CreateSwapVolumes
+    Value: !Ref MasterSwapEBS
+  BackupSpoolEBS:
+    Value: !Ref BackupSpoolEBS
+  BackupLogEBS:
+    Value: !Ref BackupLogEBS
+  BackupSwapEBS:
+    Condition: CreateSwapVolumes
+    Value: !Ref BackupSwapEBS
