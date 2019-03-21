@@ -29,10 +29,13 @@ Metadata:
     - Label:
         default: Bastion Configuration
       Parameters:
-        - EC2KeyName
+        - AdminUser
+        - AdminPubKey
         - BastionAMIOS
         - BastionInstanceType
         - BastionSecurityGroup
+        - EC2KeyName
+        - LoginFile
         - NumberOfSubnets
         - Subnet
     - Label:
@@ -41,6 +44,10 @@ Metadata:
         - MirovoyCFAssetsBucket
         - MYS3KeyPrefix
     ParameterLabels:
+      AdminUser:
+        default: Alternative superuser account to create
+      AdminPubKey:
+        default: SSH public key for the AdminUser
       BastionAMIOS:
         default: Bastion AMI Operating System
       BastionInstanceType:
@@ -49,6 +56,8 @@ Metadata:
         default: Bastion Security Group
       EC2KeyName:
         default: Existing Key Pair
+      LoginFile:
+        default: Shell configuration file to be put in users home dir
       MirovoyCFAssetsBucket:
         default: Mirovvoy CloudFront Assets S3 bucket name
       MYS3KeyPrefix:
@@ -62,6 +71,20 @@ Metadata:
 
 Parameters:
 
+  AdminUser:
+    AllowedPattern: "^[a-z][-a-z0-9]*$"
+    ConstraintDescription: "Must be a valid username for the OS to be used. 
+      For sanity's sake, confining this to starting with a lower-case letter,
+      followed by an arbitrary number of lower-case letters, numbers, and the
+      dash character ('-')."
+    Description: 'An alternate account to be created on bastion instances with
+      superuser permissions.'
+    Type: String
+  AdminPubKey:
+    Description: 'The public key text to be installed in the authorized_hosts
+      file for the admin user. Will also be installed as an accepted key for
+      the default admin user.'
+    Type: String
   BastionBanner:
     Default: "var/banner_message.txt"
     Description: 'Path and file under S3 prefix for Banner text to display upon login. Should not start with a "/".'
@@ -186,6 +209,11 @@ Parameters:
     Default: "false"
     Description: 'To include a banner to be displayed when connecting via SSH
       to the bastion, set this parameter to true.'
+    Type: String
+  SkelFileDir:
+    Default: "var/skel/"
+    Description: "Path under S3 prefix for Banner text to put in the
+      alternate admin user's home dir, via /etc/skel/. Should end in a slash."
     Type: String
   NumberOfSubnets:
     AllowedValues:
@@ -375,6 +403,23 @@ Resources:
               owner: "root"
               group: "root"
               authentication: S3AccessCreds
+            /tmp/profile:
+              source: !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}.amazonaws.com/${MYS3KeyPrefix}${SkelFileDir}profile"
+              mode: "000600"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
+            /tmp/shrc:
+              source: !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}.amazonaws.com/${MYS3KeyPrefix}${SkelFileDir}shrc"
+              mode: "000600"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
+            /tmp/adminpubkey.pub:
+              content: !Ref AdminPubKey
+              mode: "000600"
+              owner: "root"
+              group: "root"
           commands:
             b-bootstrap:
               command:
@@ -383,7 +428,9 @@ Resources:
                   " --banner ",
                   !Ref BastionBanner,
                   " --enable ",
-                  !Ref EnableBanner
+                  !Ref EnableBanner,
+                  " --admin-user ",
+                  !Ref AdminUser
                   ]
                 ]
     Properties:

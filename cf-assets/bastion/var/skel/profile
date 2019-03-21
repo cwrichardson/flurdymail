@@ -1,0 +1,65 @@
+# .profile
+
+# Source global definitions
+if [ -f /etc/kshrc ]; then
+	. /etc/kshrc
+fi
+
+# User specific aliases and functions
+
+pathmunge () {
+    case ":${PATH}:" in
+        *:"$1":*)
+            ;;
+        *)
+            if [ "$2" = "after" ] ; then
+                PATH=$PATH:$1
+            else
+                PATH=$1:$PATH
+            fi
+    esac
+}
+
+if [ -d $HOME/bin ]; then
+	pathmunge $HOME/bin
+fi
+
+if [ -d $HOME/scripts ]; then
+	pathmunge $HOME/scripts
+fi
+
+case $- in
+*i*)
+        INTERACTIVE_SHELL=1
+        ;;
+*)
+        ;;
+esac
+
+if [ ! -z $INTERACTIVE_SHELL ]
+then
+        EDITOR=vim;                              export EDITOR
+        HOSTNAME=`hostname`;                    export HOSTNAME
+        NODENAME=`hostname | cut -f 1 -d .`;    export NODENAME
+        PAGER=less;                             export PAGER
+        VISUAL=vim;                              export VISUAL
+        ENV=$HOME/.shrc;                        export ENV
+
+        LOGINSHELL=true
+
+        EXINIT='set ai sm noeb nows tags=./tags\ ..tags cedit=^[ '
+        export EXINIT
+
+        PS1="$USER@$NODENAME$"
+
+        stty start undef stop undef erase "^H" kill "^U" intr "^C"
+
+        alias df='df -k'
+        alias du='du -k'
+        alias la='ls -a'
+        alias lf='ls -FA'
+        alias ll='ls -al'
+        #alias phpdoc='phpdoc -o HTML:frames:phpdoc.de -t docs'
+fi
+
+unset -f pathmunge

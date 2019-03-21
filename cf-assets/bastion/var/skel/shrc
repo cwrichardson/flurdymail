@@ -1,0 +1,52 @@
+#
+# source for sh/ksh for each invocation of the shell
+#
+if [ -z $LOGINSHELL ]
+then
+	PS1="su-$USER@$NODENAME#"
+else
+	PS1="$USER@$NODENAME$"
+fi
+
+case $- in
+*i*)
+	alias df='df -k'
+	alias du='du -k'
+	alias f=finger
+	alias h='fc -l -r | more'
+	alias j='jobs -l'  
+	alias la='ls -a'
+	alias lf='ls -FA'
+	alias ll='ls -al' 
+	alias x=exit
+	alias z=suspend
+
+	os="$(uname -sr)"
+
+	case $SHELL in
+	*ksh)
+		set -o vi
+		set -o markdirs
+		;;
+        *)
+		set -o vi
+		;;
+        esac
+
+	case $os in
+	*SunOS*)
+		alias vi=nvi
+		alias view=nview
+		alias su='su -m'
+		alias man='man -F'
+		;;
+	*BSD*|"SunOS 4"*)
+		alias su='su -m'
+		;;
+	*)
+		;;
+	esac
+	;;
+*)
+	;;
+esac

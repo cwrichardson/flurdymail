@@ -1,7 +1,9 @@
 #!/bin/bash -e
 # Bastion Bootstrapping
-# authors: tonynv@amazon.com, sancard@amazon.com, ianhill@amazon.com, cwr@mirovoysales.com
-# NOTE: This requires GNU getopt. On Mac OS X and FreeBSD you must install GNU getopt and mod the checkos function so that it's supported
+# authors: tonynv@amazon.com, sancard@amazon.com, ianhill@amazon.com, 
+# cwr@mirovoysales.com
+# NOTE: This requires GNU getopt. On Mac OS X and FreeBSD you must
+#install GNU getopt and mod the checkos function so that it's supported
 
 
 # Configuration
@@ -243,8 +245,10 @@ EOF
 
     if [[ "${release}" == "CentOS" ]]; then
         restorecon -v /etc/ssh/sshd_config
+	echo "[INFO] Restarting sshd"
         systemctl restart sshd
     elif [[ "${release}" == "AMZN" ]]; then
+	echo "[INFO] Restarting sshd"
         systemctl restart sshd
     fi
 
@@ -378,7 +382,7 @@ setup_environment_variables
 SSH_BANNER="LINUX BASTION"
 
 # Read the options from cli input
-TEMP=`getopt -o h --longoptions help,banner:,enable:,tcp-forwarding:,x11-forwarding: -n $0 -- "$@"`
+TEMP=`getopt -o h --longoptions help,banner:,enable:,tcp-forwarding:,x11-forwarding:,admin-user: -n $0 -- "$@"`
 eval set -- "${TEMP}"
 
 
@@ -407,6 +411,10 @@ while true; do
             X11_FORWARDING="$2";
             shift 2
             ;;
+        --admin-user)
+            ADMIN_USER="$2";
+            shift 2
+            ;;
         --)
             break
             ;;
@@ -428,6 +436,41 @@ if [[ ${ENABLE} == "true" ]];then
         fi
 else
     echo "Banner message is not enabled!"
+fi
+
+# ADMIN USER CONFIGURATION
+ADMIN_PUB_KEY="/tmp/adminpubkey.pub"
+if ! [ -z "$ADMIN_USER" ]; then
+	if [[ -e ${ADMIN_PUB_KEY} ]]; then
+		for SKEL in profile shrc; do
+			if  [[ -e /tmp/${SKEL} ]]; then
+				echo "[INFO] Moving /tmp/${SKEL} into place..."
+				mv /tmp/$SKEL /etc/skel/.$SKEL
+			else
+				echo "[INFO] /tmp/$SKEL not found. "\
+				 "Continuing..."
+			fi
+		done
+		echo "[INFO] Adding admin user ... "
+		useradd -G adm,wheel,systemd-journal -s /usr/bin/ksh $ADMIN_USER
+		mv ${ADMIN_PUB_KEY} /home/ec2-user/.ssh/${ADMIN_USER}.pub
+		cat /home/ec2-user/.ssh/${ADMIN_USER}.pub >> \
+		    /home/ec2-user/.ssh/authorized_keys
+		cp /home/ec2-user/.ssh/${ADMIN_USER}.pub /home/${ADMIN_USER}/
+		chown ${ADMIN_USER}:${ADMIN_USER} \
+		    /home/${ADMIN_USER}/${ADMIN_USER}.pub
+		cd /home/${ADMIN_USER}
+		mkdir .ssh
+		chown ${ADMIN_USER}:${ADMIN_USER} .ssh
+		mv ${ADMIN_USER}.pub .ssh/
+		cat .ssh/${ADMIN_USER}.pub >> .ssh/authorized_keys
+		chown ${ADMIN_USER}:${ADMIN_USER} .ssh/authorized_keys
+		chmod 700 .ssh
+		chmod 600 .ssh/authorized_keys
+	else
+		echo "[INFO] no public key found, skipping."
+		exit 1;
+	fi
 fi
 
 #Enable/Disable TCP forwarding
