@@ -203,6 +203,10 @@ Outputs:
     Value: !Ref DataSubnetGroup
   MasterDatabaseEndpointAddress:
     Value: !GetAtt MasterDB.Endpoint.Address
+    Export:
+      Name: !Sub "${AWS::StackName}-MasterDBEndpoint"
   ReadReplicaEndpointAddress:
     Value: !GetAtt ReadReplicaDB.Endpoint.Address
+    Export:
+      Name: !Sub "${AWS::StackName}-ReplicaDBEndpoint"
 
