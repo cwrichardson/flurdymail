@@ -8,7 +8,7 @@ Description: 'Mirovoy Reference Architecture - Create Security Groups
 Metadata:
 
   Authors:
-    Description: Chris Richardson (cwr@mirovoysales.com
+    Description: Chris Richardson (cwr@mirovoysales.com)
   License:
     Description: 'Copyright 2018 Mirovoy Sales, s.r.o.  and its
 	affiliates. All Rights Reserved.  This is a derivative work
@@ -29,11 +29,17 @@ Metadata:
       Parameters:
         - SshAccessCidr
         - Vpc
+    - Label:
+        default: Optional security groups to create
+      Parameters:
+        - CreateMailSecGroup
     ParameterLabels:
       SshAccessCidr:
         default: SSH Access From
       Vpc:
         default: Vpc Id
+      CreateMailSecGroup:
+        default: Create a security group for mail servers
 
 Parameters:
   
@@ -46,6 +52,18 @@ Parameters:
     AllowedPattern: ^(vpc-)([a-z0-9]{8}|[a-z0-9]{17})$
     Description: The Vpc Id of an existing Vpc.
     Type: AWS::EC2::VPC::Id
+  CreateMailSecGroup:
+    AllowedValues:
+      - 'True'
+      - 'False'
+    Default: 'True'
+    Description: Create a security group for use by mail servers
+    Type: String
+
+Conditions:
+
+  WantsMail: !Equals [ 'True', !Ref CreateMailSecGroup ]
+  WantsNothing: !Not [ !Equals [ 'True', !Ref CreateMailSecGroup ] ]
 
 Resources:
 
@@ -61,29 +79,88 @@ Resources:
       VpcId:
         !Ref Vpc
 
-  DatabaseSecurityGroup:
+  DatabaseSecurityGroupMail:
     Type: AWS::EC2::SecurityGroup
+    Condition: WantsMail
     Properties:
       GroupDescription: Security group for RDS Databases
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
-# must have CIDR or Security Group in order to declare. Once we have
-# application servers that need to talk to the DBs, remove this CIDR
-# reference and use SourceSecurityGroupId instead — with a separate
-# SecurityGroupIngress block for each application server type
-#SourceSecurityGroupId: !Ref MailSecurityGroup
+          SourceSecurityGroupId: !Ref MailSecurityGroup
+      VpcId:
+        !Ref Vpc
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: WantsNothing
+    Properties:
+      GroupDescription: Security group for RDS Databases
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
           CidrIp: 10.0.0.0/20
+      VpcId:
+        !Ref Vpc
+
+  MailSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: WantsMail
+    Properties:
+      GroupDescription: Security group for MX Servers
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+#
+# port 25 for SMTP relay between servers
+# 587 for SMPT from clients (STARTLS)
+# 993 for IMAP
+# 995 for POP3
+#
+        - IpProtocol: tcp
+          FromPort: 25
+          ToPort: 25
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 587
+          ToPort: 587
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 993
+          ToPort: 993
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 995
+          ToPort: 995
+          CidrIp: 0.0.0.0/0
       VpcId:
         !Ref Vpc
 
 Outputs:
   BastionSecurityGroup:
+    Description: Security group for jump/bastion servers
     Value: !Ref BastionSecurityGroup
     Export:
       Name: !Join [ ":", [ !Ref "AWS::StackName", BastionSecurityGroup ] ]
+  DatabaseSecurityGroupMail:
+    Condition: WantsMail
+    Description: Security group for RDS database access
+    Value: !Ref DatabaseSecurityGroupMail
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", DatabaseSecurityGroup ] ]
   DatabaseSecurityGroup:
+    Condition: WantsNothing
+    Description: Security group for RDS database access
     Value: !Ref DatabaseSecurityGroup
     Export:
       Name: !Join [ ":", [ !Ref "AWS::StackName", DatabaseSecurityGroup ] ]
+  MailSecurityGroup:
+    Condition: WantsMail
+    Description: Security group for MX servers
+    Value: !Ref MailSecurityGroup
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", MailSecurityGroup ] ]
