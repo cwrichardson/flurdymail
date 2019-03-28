@@ -467,6 +467,13 @@ if ! [ -z "$ADMIN_USER" ]; then
 		chown ${ADMIN_USER}:${ADMIN_USER} .ssh/authorized_keys
 		chmod 700 .ssh
 		chmod 600 .ssh/authorized_keys
+		cat <<EOF >>/etc/sudoers.d/cloud-init
+
+# Added by bastion_bootstrap
+# User rules for additional admin user
+EOF
+		echo "${ADMIN_USER} ALL=(ALL) NOPASSWD:ALL" \
+		    >>/etc/sudoers.d/cloud-init
 	else
 		echo "[INFO] no public key found, skipping."
 		exit 1;
