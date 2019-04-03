@@ -49,7 +49,7 @@ Metadata:
       AdminPubKey:
         default: SSH public key for the AdminUser
       BastionAMIOS:
-        default: Bastion AMI Operating System
+        default: AMI ID for Bastion Servers
       BastionInstanceType:
         default: Instance Type
       BastionSecurityGroup:
@@ -64,8 +64,6 @@ Metadata:
         default: Mirovoy CloudFront Assets Bastion S3 bucket key prefix
       NumberOfSubnets:
         default: Number of subnets
-      OSImageOverride:
-        default: Manually set AMI image
       Subnet:
         default: Subnets
 
@@ -93,17 +91,9 @@ Parameters:
     Description: Select the bastion security group.
     Type: AWS::EC2::SecurityGroup::Id
   BastionAMIOS:
-    AllowedValues:
-    - Mirovoy-Amazon-Linux-HVM
-    Default: Mirovoy-Amazon-Linux-HVM
-    Description: 'The Linux distribution for the AMI to be used for the bastion 
-      instances.'
-    Type: String
-  OSImageOverride:
-    Description: 'Specify a region-specific image to use for the instance, as
-      opposed to the AMI above.'
-    Type: String
-    Default: ''
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+    Description: AMI ID to use for the mail servers
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
   BastionInstanceType:
     AllowedValues:
     - t2.nano 
@@ -275,16 +265,6 @@ Conditions:
   Subnet1: !Condition NumberOfSubnets2
   UseAlternativeInitialization: !Not [ 
     !Equals [ !Ref AlternativeInitializationScript, '' ] ]
-  UseOSImageOverride: !Not [ !Equals [ !Ref OSImageOverride, '' ] ]
-
-Mappings:
-
-  RegionMap:
-    eu-central-1:
-      MRVYAMZNLINUX: ami-02d725b7630b2db15
-  AMINameMap:
-    Mirovoy-Amazon-Linux-HVM:
-      Code: MRVYAMZNLINUX
 
 Resources:
 
@@ -435,12 +415,7 @@ Resources:
                 ]
     Properties:
       IamInstanceProfile: !Ref BastionHostProfile
-      ImageId: !If
-        [ UseOSImageOverride, !Ref OSImageOverride,
-          !FindInMap [ RegionMap, !Ref 'AWS::Region', 
-            !FindInMap [ AMINameMap, !Ref BastionAMIOS, Code ] 
-          ]
-        ]
+      ImageId: !Ref BastionAMIOS
       InstanceMonitoring: true
       InstanceType: !Ref BastionInstanceType
       KeyName: !Ref EC2KeyName
