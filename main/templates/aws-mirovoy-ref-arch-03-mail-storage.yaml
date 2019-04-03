@@ -420,16 +420,34 @@ Resources:
 
 Outputs:
   MasterSpoolEBS:
+    Description: EBS Volume for mail files on master mail server
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", MasterSpoolEBS ] ]
     Value: !Ref MasterSpoolEBS
   MasterLogEBS:
+    Description: EBS Volume for log files on master mail server
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", MasterLogEBS ] ]
     Value: !Ref MasterLogEBS
   MasterSwap:
     Condition: CreateSwapVolumes
+    Description: EBS Volume for swap on master mail server
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", MasterSwapEBS ] ]
     Value: !Ref MasterSwapEBS
   BackupSpoolEBS:
+    Description: EBS Volume for mail files on backup mail server
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", BackupSpoolEBS ] ]
     Value: !Ref BackupSpoolEBS
   BackupLogEBS:
+    Description: EBS Volume for log files on backup mail server
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", BackupLogEBS ] ]
     Value: !Ref BackupLogEBS
   BackupSwapEBS:
     Condition: CreateSwapVolumes
+    Description: EBS Volume for swap on backup mail server
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", BackupSwapEBS ] ]
     Value: !Ref BackupSwapEBS
