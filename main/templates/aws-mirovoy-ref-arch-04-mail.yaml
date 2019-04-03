@@ -1,0 +1,450 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: 'Mirovoy Reference Architecture - Create mail servers
+    This template creates a primary mail server that runs courier-postfix for
+    inbound and outbound mail, and a backup MX server in a separate AZ.'
+
+Metadata:
+
+  Authors:
+    Description: Chris Richardson (cwr@mirovoysales.com)
+  License:
+    Description: 'Copyright 2018 Mirovoy Sales, s.r.o.  and its
+	affiliates. All Rights Reserved.  This is a derivative work
+	of an Amazon template, and as such falls under the derivate
+	works section of the the Amazon Software License (the
+	"License").  You may not use this file except in compliance
+	with the License. A copy of the License is located at
+	http://aws.amazon.com/asl/ This file is distributed on an
+	"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+	either express or implied. See the License for the specific
+	language governing permissions and limitations under the
+	License.'
+
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Mail Instance Parameters
+        Parameters:
+          - AdminUser
+          - AdminPubKey
+          - EC2KeyName
+          - MailInstanceType
+          - MailAMIID
+          - MailSecurityGroup
+          - StorageStackName
+          - PrimarySubnet
+          - BackupSubnet
+      - Label:
+          default: Database Parameters
+        Parameters:
+          - DatabaseStackName
+          - MailDBName
+          - MailDBUser
+          - MailDBPassword
+      - Label:
+          default: AWS S3 Configuration
+        Parameters:
+          - MirovoyCFAssetsBucket
+          - MYS3KeyPrefix
+          - SkelFileDir
+
+    ParameterLabels:
+      AdminUser:
+        default: Alternative superuser account to create
+      AdminPubKey:
+        default: SSH public key for the AdminUser
+      EC2KeyName:
+        default: Existing Key Pair
+      MailInstanceType:
+        default: Mail Instance Type
+      MailAMIID:
+        default: AMI ID for Mail Servers
+      MailSecurityGroup:
+        default: Mail Security Group
+      DatabaseStackName:
+        default: Name for the stack that created the RDS instances
+      MailDBName:
+        default: Mail Database Name
+      MailDBUser:
+        default: Mail Database Username
+      MailDBPassword:
+        default: Mail Database Password
+      MirovoyCFAssetsBucket:
+        default: Mirovvoy CloudFront Assets S3 bucket name
+      MYS3KeyPrefix:
+        default: Mirovoy CloudFront Assets Bastion S3 bucket key prefix
+      SkelFileDir:
+        default: S3 Directory for /etc/skel files
+      StorageStackName:
+        default: Name for the stack that created the EBS volumes
+      PrimarySubnet:
+        default: Subnet in which to place the primary mail server
+      BackupSubnet:
+        default: Subnet in which to place the backup mail server
+
+Parameters:
+
+  AdminUser:
+    AllowedPattern: "^[a-z][-a-z0-9]*$"
+    ConstraintDescription: "Must be a valid username for the OS to be used.
+      For sanity's sake, confining this to starting with a lower-case letter,
+      followed by an arbitrary number of lower-case letters, numbers, and the
+      dash character ('-')."
+    Default: 'none'
+    Description: 'An alternate account (unix user) to be created on mail
+      servers with superuser permissions.'
+    Type: String
+  AdminPubKey:
+    Default: ''
+    Description: 'The public key text to be installed in the authorized_hosts
+      file for the alternate account created above. Will also be installed in
+      authorized_hosts for the default admin user (ec2-user). Probably just cut
+      and paste the contents of your id_rsa.pub file for the user.'
+    Type: String
+  DatabaseStackName:
+    AllowedPattern: ^([a-zA-Z0-9]+[a-zA-Z0-9\-]*)$
+    ConstraintDescription: "A stack name can contain only alphanumeric
+      characters (case-sensitive) and hyphens. It must start with an
+      alphabetic character and can't be longer than 128 characters."
+    Description: The name of the stack that was used to create the RDS instances
+    MaxLength: 128
+    Type: String
+  MailAMIID:
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+    Description: AMI ID to use for the mail servers
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+  MailDBUser:
+    AllowedPattern: ^([a-zA-Z0-9]*)$
+    Description: The MySQL username to have access to the mail database.
+    ConstraintDescription: 'Must contain only alphanumeric characters and be at
+      least 8 characters.'
+    MaxLength: 16
+    MinLength: 8
+    Type: String
+  MailDBPassword:
+    AllowedPattern: ^([a-z0-9A-Z`~!#$%^&*()_+,\\-])*$
+    ConstraintDescription: "Must be between 8 and 41 characters, including
+      letters (upper or lower), numbers, and these special characters
+      '_'`~!#$%^&*()_+,-"
+    Description: The MySQL password for the mail-database user.
+    MaxLength: 41
+    MinLength: 8
+    NoEcho: true
+    Type: String
+  MailDBName:
+    AllowedPattern: ^([a-zA-Z0-9]*)$
+    Description: The MySQL mail database name.
+    Type: String
+  EC2KeyName:
+    AllowedPattern: ^([a-zA-Z0-9 @.`~!#$%^&*()_+,\\-])*$
+    ConstraintDescription: 'Must be letters (upper or lower), numbers, and
+      special characters.'
+    Description: 'Name of an EC2 KeyPair. Your mail instances will launch with
+      this KeyPair.'
+    Type: AWS::EC2::KeyPair::KeyName
+  MailInstanceType:
+    AllowedValues:
+      - t2.nano
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+    ConstraintDescription: Must be a valid Amazon EC2 instance type.
+    Default: t2.micro
+    Description: The Amazon EC2 instance type for your web instances.
+    Type: String
+  MailSecurityGroup:
+    Description: Select the mail security group.
+    Type: AWS::EC2::SecurityGroup::Id
+  MirovoyCFAssetsBucket:
+    AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
+    ConstraintDescription: 'Mirovoy CloudFront Assets Bucket name can include
+      numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot
+      start or end with a hyphen (-).'
+    Default: "mirovoy-cf-assets"
+    Description: 'S3 bucket name for the Mirovoy CloudFormation assets.'
+    Type: String
+  MYS3KeyPrefix:
+    AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
+    ConstraintDescription: 'Mirovoy CloudFront Assets S3 bucket  key prefix
+      can include numbers, lowercase letters, uppercase letters, hyphens (-),
+      and forward slash (/). The prefix should end with a forward slash (/).'
+    Default: "mail/"
+    Description: 'S3 key prefix for the Mirovoy CloudFormation assets. This
+      should be the top-level directory path inside the bucket, leading to the
+      assets for this template (e.g., scripts directory, etc... are located)'
+    Type: String
+  SkelFileDir:
+    Default: "var/skel/"
+    Description: "Path under S3 prefix for Banner text to put in the
+      alternate admin user's home dir, via /etc/skel/. Should end in a slash."
+    Type: String
+  StorageStackName:
+    AllowedPattern: ^([a-zA-Z0-9]+[a-zA-Z0-9\-]*)$
+    ConstraintDescription: "A stack name can contain only alphanumeric
+      characters (case-sensitive) and hyphens. It must start with an
+      alphabetic character and can't be longer than 128 characters."
+    Description: The name of the stack that was used to create EBS volumes
+    MaxLength: 128
+    Type: String
+  PrimarySubnet:
+    Description: 'Subnet in which to place the primary mail server.'
+    Type: List<AWS::EC2::Subnet::Id>
+  BackupSubnet:
+    Description: 'Subnet in which to place the backup mail server.'
+    Type: List<AWS::EC2::Subnet::Id>
+
+Conditions:
+
+  NoAdminUser:
+    !Equals [!Ref AdminUser, 'none']
+
+Resources:
+
+  MailInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+
+  MailInstancePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: MailPolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: !Sub
+              arn:aws:s3:::${MirovoyCFAssetsBucket}/${MYS3KeyPrefix}*
+          -
+            Effect: Allow
+            Action:
+              - ec2:AssociateAddress
+              - ec2:DescribeAddress
+            Resource: "*"
+          -
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:DescribeLogStreams
+            Resource: arn:aws:logs:*:*:*
+      Roles:
+        -
+          !Ref MailInstanceRole
+
+  MailInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        -
+          !Ref MailInstanceRole
+
+  MailServerInstance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      Comment: Install the primary mail server
+      AWS::CloudFormation::Authentication:
+        S3AccessCreds:
+          type: "S3"
+          buckets: [!Ref MirovoyCFAssetsBucket]
+          roleName: !Ref MailInstanceRole
+      AWS::CloudFormation::Init:
+        configSets:
+          deploy_mailserver:
+            - install_mailserver
+#            - start_mailserver
+          deploy_with_alt_admin:
+            - add_admin
+            - install_mailserver
+        add_admin:
+          packages:
+            yum:
+              ksh: []
+          files:
+            /tmp/profile:
+              source: !Join
+                - ''
+                - - https://
+                  - !Sub ${MirovoyCFAssetsBucket}.s3-${AWS::Region}
+                  - !Sub .amazonaws.com/${MYS3KeyPrefix}${SkelFileDir}profile
+              mode: "000600"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
+            /tmp/shrc:
+              source: !Join
+                - ''
+                - - !Sub https://${MirovoyCFAssetsBucket}.s3-
+                  - !Sub ${AWS::Region}.amazonaws.com/
+                  - !Sub ${MYS3KeyPrefix}${SkelFileDir}shrc
+              mode: "000600"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
+            /tmp/adminpubkey.pub:
+              content: !Ref AdminPubKey
+              mode: "000600"
+              owner: "root"
+              group: "root"
+          commands:
+# add skeleton files
+            01_add_profile:
+              command: "mv /tmp/profile /etc/skel/.profile"
+              test: "test -e /tmp/profile"
+            02_add_shrc:
+              command: "mv /tmp/shrc /etc/skel/.shrc"
+              test: "test -e /tmp/shrc"
+# add user
+            03_add_user:
+              command: !Join
+                - ''
+                - - "/usr/sbin/useradd -G adm,wheel,systemd-journal "
+                  - "-s /usr/bin/ksh "
+                  - !Ref AdminUser
+              test: !Join
+                - ''
+                - - "test ! `/usr/bin/id -u "
+                  - !Ref AdminUser
+                  - " > /dev/null 2>&1`"
+# install ssh key
+            04_put_pub_key_for_ec2_user:
+              command: !Join
+                - ''
+                - - "cat /tmp/adminpubkey.pub >> "
+                  - /home/ec2-user/.ssh/authorized_keys
+              test: "test -e /tmp/adminpubkey.pub"
+            05_create_ssh_dir:
+              command: "mkdir .ssh"
+              cwd: !Sub /home/${AdminUser}
+              test: "test ! -e .ssh"
+            06_add_to_auth_keys:
+              command: "cat /tmp/adminpubkey.pub >> .ssh/authorized_keys"
+              cwd: !Sub /home/${AdminUser}
+              test: "test -e /tmp/adminpubkey.pub"
+            07_chown:
+              command: !Sub chown -R ${AdminUser}:${AdminUser} .ssh
+              cwd: !Sub /home/${AdminUser}
+              test: "test -e .ssh"
+            08_set_dir_perm:
+              command: "chmod 700 .ssh"
+              cwd: !Sub /home/${AdminUser}
+              test: "test -e .ssh"
+            09_set_auth_keys_perm:
+              command: "chmod 600 .ssh/authorized_keys"
+              cwd: !Sub /home/${AdminUser}
+              test: "test -e .ssh/authorized_keys"
+# enable sudo without password
+            10_allow_sudo:
+              command: !Join
+                - ''
+                - - !Sub echo ${AdminUser} ALL=\(ALL\) NOPASSWD:ALL
+                  - " >>/etc/sudoers.d/cloud-init"
+              test: !Join
+                - ''
+                - - "test ! `grep "
+                  - !Ref AdminUser
+                  - " /etc/sudoers.d/cloud-init >/dev/null 2>&1`"
+        install_mailserver:
+          packages:
+            yum:
+              awslogs: []
+              postfix: []
+          files:
+            /etc/cfn/cfn-hup.conf:
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+              mode: "000400"
+              owner: "root"
+              group: "root"
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Join
+                - ''
+                - - |-
+                    [cfn-auto-reloader-hook]
+                    triggers=post.update
+                    path=Resources.MailServerInstance.Metadata.
+                  - |-
+                    AWS::CloudFormation::Init
+                    action=/opt/aws/bin/cfn-init -v --stack
+                  - ' '
+                  - !Ref AWS::StackName
+                  - ' --resource MailServerInstance --configsets '
+                  - !If [NoAdminUser, deploy_mailserver, deploy_with_alt_admin]
+                  - '  --region '
+                  - !Ref AWS::Region
+                  - |
+
+                    runas=root
+              mode: "000400"
+              owner: "root"
+              group: "root"
+          services:
+            sysvinit:
+              cfn-hup:
+                enabled: "true"
+                ensureRunning: "true"
+                files:
+                  - "/etc/cfn/cfn-hup.conf"
+                  - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
+#        start_mailserver:
+#          services:
+#            sysvinit:
+#              httpd:
+#                enabled: true
+#                ensureRunning: true
+    Properties:
+      IamInstanceProfile: !Ref MailInstanceProfile
+      ImageId: !Ref MailAMIID
+      InstanceType: !Ref MailInstanceType
+      KeyName: !Ref EC2KeyName
+      SecurityGroupIds:
+        - !Ref MailSecurityGroup
+      SubnetId: !Select [0, !Ref PrimarySubnet]
+      Tags:
+        -
+          Key: Name
+          Value: !Join ['', ['Primary Mail Server / ', !Ref 'AWS::StackName']]
+      UserData:
+        "Fn::Base64": !Sub
+          - |
+            #!/bin/bash -xe
+            yum update -y
+            yum install -y aws-cfn-bootstrap
+            /opt/aws/bin/cfn-init --configsets ${DeployType} --verbose \
+              --stack ${AWS::StackName} --resource MailServerInstance \
+              --region ${AWS::Region}
+            /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} \
+              --resource MailServerInstance --region ${AWS::Region}
+# Need to figure out how to break the below line :(
+          - {DeployType: !If [NoAdminUser, deploy_mailserver, deploy_with_alt_admin]}
+#    CreationPolicy:
+#      ResourceSignal:
+#        Count: 1
+#        Timeout: PT5M
+
+  MasterSpoolMountPoint:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: /dev/xvds
+      InstanceId: !Ref MailServerInstance
+      VolumeId:
+        Fn::ImportValue: !Sub '${StorageStackName}:MasterSpoolEBS'
