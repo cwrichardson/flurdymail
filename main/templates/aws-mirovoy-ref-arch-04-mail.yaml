@@ -268,10 +268,12 @@ Resources:
       AWS::CloudFormation::Init:
         configSets:
           deploy_mailserver:
+            - mount_swap
             - install_mailserver
 #            - start_mailserver
           deploy_with_alt_admin:
             - add_admin
+            - mount_swap
             - install_mailserver
         add_admin:
           packages:
@@ -361,6 +363,26 @@ Resources:
                 - - "test ! `grep "
                   - !Ref AdminUser
                   - " /etc/sudoers.d/cloud-init >/dev/null 2>&1`"
+        mount_swap:
+          commands:
+            01_make_swap:
+              command: "mkswap /dev/xvdm"
+              test: "! /usr/sbin/blkid | grep /dev/xvdm.*TYPE=\"swap\""
+            02_swap_on:
+              command: "/usr/sbin/swapon /dev/xvdm"
+              test: "! /usr/sbin/swapon --show | grep /dev/xvdm"
+            03_persist_swap:
+              command: !Join
+                - ''
+                - - "echo UUID=`/usr/sbin/blkid | grep /dev/xvdm "
+                  - "| grep -o UUID.*[[:blank:]] "
+                  - "| cut -f2 -d\\\"` swap swap defaults 0 0"
+                  - " >>/etc/fstab"
+              test: !Join
+                - ''
+                - - "! grep `/usr/sbin/blkid | grep /dev/xvdm "
+                  - "| grep -o UUID.*[[:blank:]] "
+                  - "| cut -f2 -d\\\"` /etc/fstab"
         install_mailserver:
           packages:
             yum:
@@ -448,3 +470,19 @@ Resources:
       InstanceId: !Ref MailServerInstance
       VolumeId:
         Fn::ImportValue: !Sub '${StorageStackName}:MasterSpoolEBS'
+
+  MasterSwapMountPoint:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: /dev/xvdm
+      InstanceId: !Ref MailServerInstance
+      VolumeId:
+        Fn::ImportValue: !Sub '${StorageStackName}:MasterSwapEBS'
+
+  MasterLogMountPoint:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: /dev/xvdl
+      InstanceId: !Ref MailServerInstance
+      VolumeId:
+        Fn::ImportValue: !Sub '${StorageStackName}:MasterLogEBS'
