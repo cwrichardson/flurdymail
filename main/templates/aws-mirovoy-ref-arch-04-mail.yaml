@@ -34,6 +34,7 @@ Metadata:
           - MailAMIID
           - MailSecurityGroup
           - StorageStackName
+          - UseSwap
           - PrimarySubnet
           - BackupSubnet
       - Label:
@@ -83,6 +84,8 @@ Metadata:
         default: Subnet in which to place the primary mail server
       BackupSubnet:
         default: Subnet in which to place the backup mail server
+      UseSwap:
+        default: Mount swap volumes?
 
 Parameters:
 
@@ -195,11 +198,20 @@ Parameters:
   BackupSubnet:
     Description: 'Subnet in which to place the backup mail server.'
     Type: List<AWS::EC2::Subnet::Id>
+  UseSwap:
+    AllowedValues:
+      - true
+      - false
+    Default: true
+    Description: Use a volume created by the storage template for swap
+    Type: String
 
 Conditions:
 
   NoAdminUser:
     !Equals [!Ref AdminUser, 'none']
+  SwapOn:
+    !Equals [!Ref UseSwap, true]
 
 Resources:
 
@@ -267,14 +279,17 @@ Resources:
           roleName: !Ref MailInstanceRole
       AWS::CloudFormation::Init:
         configSets:
-          deploy_mailserver:
+          have_swap:
             - mount_swap
+          deploy_mailserver:
+            - mount_log
+            - mount_spool
             - install_mailserver
 #            - start_mailserver
           deploy_with_alt_admin:
             - add_admin
-            - mount_swap
-            - install_mailserver
+            -
+              ConfigSet: "deploy_mailserver"
         add_admin:
           packages:
             yum:
@@ -367,7 +382,7 @@ Resources:
           commands:
             01_make_swap:
               command: "mkswap /dev/xvdm"
-              test: "! /usr/sbin/blkid | grep /dev/xvdm.*TYPE=\"swap\""
+              test: '! /usr/sbin/blkid | grep /dev/xvdm.*TYPE=\"swap\"'
             02_swap_on:
               command: "/usr/sbin/swapon /dev/xvdm"
               test: "! /usr/sbin/swapon --show | grep /dev/xvdm"
@@ -383,6 +398,126 @@ Resources:
                 - - "! grep `/usr/sbin/blkid | grep /dev/xvdm "
                   - "| grep -o UUID.*[[:blank:]] "
                   - "| cut -f2 -d\\\"` /etc/fstab"
+        mount_log:
+          files:
+            /tmp/journald.conf:
+              content: !Sub |
+                [Journal]
+                Storage=volatile
+              mode: "000644"
+              owner: "root"
+              group: "root"
+          commands:
+            01_save_journal_conf:
+              command: "mv journald.conf journald.save"
+              cwd: /etc/systemd
+              test: "test -f journald.conf"
+            02_conf_journal:
+              command: "mv /tmp/journald.conf ."
+              cwd: /etc/systemd
+              test: "test -f /tmp/journald.conf"
+            03_reload_journal:
+              command: "systemctl force-reload systemd-journald"
+              test: "systemctl is-active systemd-journald"
+            04_touch_audit:
+              command: "mkdir /tmp/audit"
+              test: "test ! -d /tmp/audit"
+            05_restrict_audit_dir:
+              command: "chmod 700 /tmp/audit"
+              test: "test -d /tmp/audit"
+            06_conf_audit:
+              command: "sed -i 's;/var/log;/tmp;' auditd.conf"
+              cwd: /etc/audit
+              test: "grep /var/log auditd.conf"
+# systemctl and reload don't work on auditd
+            07_restart_audit:
+              command: "service auditd restart"
+              test: "systemctl is-active auditd"
+            08_mv_var_log:
+              command: "mv /var/log /tmp"
+              test: "test ! -e /tmp/log"
+            09_format_log_vol:
+              command: "mkfs -t xfs /dev/xvdl"
+              test: '[ "`lsblk -no FSTYPE /dev/xvdl`" != "xfs" ]'
+            10_mk_mount_pt:
+              command: "mkdir /var/log"
+              test: "test ! -e /var/log"
+            11_mount_log:
+              command: "mount /dev/xvdl /var/log"
+              test: "test -e /var/log"
+            12_persist_log:
+              command: !Join
+                - ''
+                - - "echo UUID=`/usr/sbin/blkid | grep /dev/xvdl "
+                  - "| grep -o UUID.*[[:blank:]] "
+                  - "| cut -f2 -d\\\"` /var/log xfs defaults,nofail 0 2"
+                  - " >>/etc/fstab"
+              test: !Join
+                - ''
+                - - "! grep `/usr/sbin/blkid | grep /dev/xvdl "
+                  - "| grep -o UUID.*[[:blank:]] "
+                  - "| cut -f2 -d\\\"` /etc/fstab"
+            13_restore_logs:
+              command: "rsync -az /tmp/log /var/"
+              test: "test -d /var/log"
+            14_conf_audit:
+              command: "sed -i 's;/tmp;/var/log;' auditd.conf"
+              cwd: /etc/audit
+              test: "grep /tmp auditd.conf"
+            15_restart_audit:
+              command: "service auditd restart"
+              test: "systemctl is-active auditd"
+            16_restore_journal_conf:
+              command: "mv journald.save journald.conf"
+              cwd: /etc/systemd
+              test: "test -f journald.save"
+            17_reload_journal:
+              command: "systemctl force-reload systemd-journald"
+              test: "systemctl is-active systemd-journald"
+            18_reload_amazon_ssm:
+              command: "systemctl force-reload amazon-ssm-agent"
+              test: "systemctl is-active amazon-ssm-agent"
+            19_reload_syslog:
+              command: "systemctl force-reload rsyslog"
+              test: "systemctl is-active rsyslog"
+        mount_spool:
+          commands:
+            01_stop_postfix:
+              command: "systemctl stop postfix"
+              test: "systemctl is-active postfix"
+            02_stop_atd:
+              command: "systemctl stop atd"
+              test: "systemctl is-active atd"
+            03_mv_var_spool:
+              command: "mv /var/spool /tmp"
+              test: "test ! -e /tmp/spool"
+            04_format_spool_vol:
+              command: "mkfs -t xfs /dev/xvds"
+              test: '[ "`lsblk -no FSTYPE /dev/xvds`" != "xfs" ]'
+            05_mk_mount_pt:
+              command: "mkdir /var/spool"
+              test: "test ! -e /var/spool"
+            06_mount_spool:
+              command: "mount /dev/xvds /var/spool"
+              test: "test -e /var/spool"
+            07_persist_spool:
+              command: !Join
+                - ''
+                - - "echo UUID=`/usr/sbin/blkid | grep /dev/xvds "
+                  - "| grep -o UUID.*[[:blank:]] "
+                  - "| cut -f2 -d\\\"` /var/spool xfs defaults,nofail 0 2"
+                  - " >>/etc/fstab"
+              test: !Join
+                - ''
+                - - "! grep `/usr/sbin/blkid | grep /dev/xvds "
+                  - "| grep -o UUID.*[[:blank:]] "
+                  - "| cut -f2 -d\\\"` /etc/fstab"
+            08_restore_spool:
+              command: "rsync -az /tmp/spool /var/"
+              test: "test -d /var/spool"
+            09_start_atd:
+              command: "systemctl start atd"
+              test: "systemctl is-enabled atd"
         install_mailserver:
           packages:
             yum:
@@ -419,6 +554,10 @@ Resources:
               mode: "000400"
               owner: "root"
               group: "root"
+          commands:
+            01_stay_secure:
+              command: "echo 0 0 * * * yum -y update --security >> /etc/crontab"
+              test: "! grep yum.*security /etc/crontab"
           services:
             sysvinit:
               cfn-hup:
@@ -451,13 +590,13 @@ Resources:
             #!/bin/bash -xe
             yum update -y
             yum install -y aws-cfn-bootstrap
-            /opt/aws/bin/cfn-init --configsets ${DeployType} --verbose \
-              --stack ${AWS::StackName} --resource MailServerInstance \
-              --region ${AWS::Region}
+            /opt/aws/bin/cfn-init --configsets ${WantSwap}${DeployType} \
+              --verbose --stack ${AWS::StackName} \
+              --resource MailServerInstance --region ${AWS::Region}
             /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} \
               --resource MailServerInstance --region ${AWS::Region}
 # Need to figure out how to break the below line :(
-          - {DeployType: !If [NoAdminUser, deploy_mailserver, deploy_with_alt_admin]}
+          - {DeployType: !If [NoAdminUser, deploy_mailserver, deploy_with_alt_admin], WantSwap: !If [SwapOn, "have_swap,", ""]}
 #    CreationPolicy:
 #      ResourceSignal:
 #        Count: 1
@@ -473,6 +612,7 @@ Resources:
 
   MasterSwapMountPoint:
     Type: AWS::EC2::VolumeAttachment
+    Condition: SwapOn
     Properties:
       Device: /dev/xvdm
       InstanceId: !Ref MailServerInstance
