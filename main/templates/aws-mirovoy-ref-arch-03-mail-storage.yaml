@@ -145,7 +145,8 @@ Parameters:
     Description: What to do with the log volumes when the stack is deleted.
     Type: String
   Cmk:
-    Description: An existing AWS KMS Customer Master Key (CMK) to encrypt file system
+    Description: 'The Amazon Resource Name (ARN) of an existing AWS KMS 
+      Customer Master Key (CMK) to encrypt file system.'
     Type: String
   PrimaryAZ:
     Description: Availability zone in which to create the volumes for the primary mail server.
@@ -419,6 +420,11 @@ Resources:
     DeletionPolicy: Delete
 
 Outputs:
+  SwapVolumesBoolean:
+    Description: Whether swap EBS volumes were created
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", SwapOn ] ]
+    Value: !If [ CreateSwapVolumes, true, false ]
   MasterSpoolEBS:
     Description: EBS Volume for mail files on master mail server
     Export:
