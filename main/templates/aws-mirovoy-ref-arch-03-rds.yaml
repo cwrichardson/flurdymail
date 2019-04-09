@@ -24,24 +24,24 @@ Metadata:
 
   AWS::CloudFormation::Interface:
     ParameterGroups:
-    - Label:
-        default: Database Parameters
-      Parameters:
-        - DatabaseInstanceType
-        - DatabaseMasterUsername
-        - DatabaseMasterPassword
-        - DatabaseEncrpytedBoolean
-        - DatabaseCmk
-        - DatabaseSecurityGroup
-        - NumberOfSubnets
-        - Subnet
+      - Label:
+          default: Database Parameters
+        Parameters:
+          - DatabaseInstanceType
+          - DatabaseMasterUsername
+          - DatabaseMasterPassword
+          - DatabaseEncrpytedBoolean
+          - DatabaseCmk
+          - DatabaseSecurityGroup
+          - NumberOfSubnets
+          - Subnet
     ParameterLabels:
       DatabaseEncrpytedBoolean:
         default: Encrypted DB Cluster
       DatabaseCmk:
-        default: AWS KMS Customer Master Key (CMK) to encrypt DB 
+        default: AWS KMS Customer Master Key (CMK) to encrypt DB
       DatabaseInstanceType:
-        default: DB Instance Class 
+        default: DB Instance Class
       DatabaseMasterUsername:
         default: DB Master Username
       DatabaseMasterPassword:
@@ -61,15 +61,16 @@ Parameters:
     AllowedValues:
       - true
       - false
-    Default: True
-    Description: Indicates whether the DB instances in the cluster are encrypted.
+    Default: true
+    Description: "Indicates whether the DB instances in the cluster are
+      encrypted."
     Type: String
   DatabaseCmk:
     Description: AWS KMS Customer Master Key (CMK) to encrypt database cluster
     Type: String
   DatabaseInstanceType:
     AllowedValues:
-# t2.micro not currently available, as it doesn't allow encryption at rest
+      # t2.micro not currently available, as it doesn't allow encryption at rest
       - db.t2.small
       - db.t2.medium
       - db.t2.large
@@ -92,13 +93,15 @@ Parameters:
   DatabaseMasterUsername:
     AllowedPattern: ^([a-zA-Z0-9]*)$
     Description: The Amazon RDS master username.
-    ConstraintDescription: Must contain only alphanumeric characters (minimum 8; maximum 16).
+    ConstraintDescription: "Must contain only alphanumeric characters
+      (minimum 8; maximum 16)."
     MaxLength: 16
     MinLength: 8
     Type: String
   DatabaseMasterPassword:
     AllowedPattern: ^([a-z0-9A-Z`~!#$%^&*()_+,\\-])*$
-    ConstraintDescription: Must be letters (upper or lower), numbers, and these special characters '_'`~!#$%^&*()_+,-    
+    ConstraintDescription: "Must be letters (upper or lower), numbers, and
+      these special characters '_'`~!#$%^&*()_+,-"
     Description: The Amazon RDS master password.
     MaxLength: 41
     MinLength: 8
@@ -112,24 +115,26 @@ Parameters:
     Type: AWS::EC2::SecurityGroup::Id
   NumberOfSubnets:
     AllowedValues:
-    - 1
-    - 2
-    - 3
+      - 1
+      - 2
+      - 3
     Default: 2
-    Description: Number of subnets. This must match your selections in the list of subnets below.
-    Type: String 
+    Description: 'Number of subnets. This must match your selections in the
+      list of subnets below.'
+    Type: String
   Subnet:
-    Description: Select existing subnets. The number selected must match the number of subnets above. Subnets selected must be in separate AZs.
+    Description: 'Select existing subnets. The number selected must match the
+      number of subnets above. Subnets selected must be in separate AZs.'
     Type: List<AWS::EC2::Subnet::Id>
 
 Conditions:
 
   NumberOfSubnets1:
-      !Equals [ 1, !Ref NumberOfSubnets ]
+    !Equals [1, !Ref NumberOfSubnets]
   NumberOfSubnets2:
-      !Equals [ 2, !Ref NumberOfSubnets ]
+    !Equals [2, !Ref NumberOfSubnets]
   NumberOfSubnets3:
-      !Equals [ 3, !Ref NumberOfSubnets ]
+    !Equals [3, !Ref NumberOfSubnets]
   Subnet0: !Or
     - !Condition NumberOfSubnets1
     - !Condition NumberOfSubnets2
@@ -157,17 +162,20 @@ Resources:
       Engine: mysql
       EngineVersion: 8.0
       KmsKeyId:
-        !If [ UseAWS-ManagedCMK, !Ref 'AWS::NoValue', !Ref DatabaseCmk ]
-      MasterUsername: !If [ NoSnapshot, !Ref DatabaseMasterUsername, !Ref 'AWS::NoValue']
-      MasterUserPassword: !If [ NoSnapshot, !Ref DatabaseMasterPassword, !Ref 'AWS::NoValue']
+        !If [UseAWS-ManagedCMK, !Ref 'AWS::NoValue', !Ref DatabaseCmk]
+      MasterUsername: !If [NoSnapshot, !Ref DatabaseMasterUsername,
+                           !Ref 'AWS::NoValue']
+      MasterUserPassword: !If [NoSnapshot, !Ref DatabaseMasterPassword,
+                               !Ref 'AWS::NoValue']
       Port: 3306
       StorageEncrypted: !Ref DatabaseEncrpytedBoolean
-      SnapshotIdentifier: !If [ NoSnapshot, !Ref 'AWS::NoValue', !Ref DatabaseRestoreSnapshot]
+      SnapshotIdentifier: !If [NoSnapshot, !Ref 'AWS::NoValue',
+                               !Ref DatabaseRestoreSnapshot]
       Tags:
         - Key: Name
-          Value: !Join [ '', [ 'Master DB / ', !Ref 'AWS::StackName' ] ]
+          Value: !Join ['', ['Master DB / ', !Ref 'AWS::StackName']]
       VPCSecurityGroups:
-      - !Ref DatabaseSecurityGroup
+        - !Ref DatabaseSecurityGroup
   ReadReplicaDB:
     Type: AWS::RDS::DBInstance
     Properties:
@@ -175,24 +183,23 @@ Resources:
       SourceDBInstanceIdentifier: !Ref MasterDB
       Tags:
         - Key: Name
-          Value: !Join [ '', [ 'Read Replica DB / ', !Ref 'AWS::StackName' ] ]
+          Value: !Join ['', ['Read Replica DB / ', !Ref 'AWS::StackName']]
   DataSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
       DBSubnetGroupDescription: RDS Database Subnet Group for Mirovoy Main DBs
       SubnetIds:
-        !If
-          [ NumberOfSubnets1,
-          [ !Select [ 0, !Ref Subnet ] ],
-          !If
-            [ NumberOfSubnets2,
-            [ !Select [ 0, !Ref Subnet ], !Select [ 1, !Ref Subnet ] ],
-            [ !Select [ 0, !Ref Subnet ], !Select [ 1, !Ref Subnet ], !Select [ 2, !Ref Subnet ] ]
-            ]
-          ]
+        !If [NumberOfSubnets1,
+             [!Select [0, !Ref Subnet]],
+             !If [NumberOfSubnets2,
+                  [!Select [0, !Ref Subnet], !Select [1, !Ref Subnet]],
+                  [!Select [0, !Ref Subnet], !Select [1, !Ref Subnet],
+                   !Select [2, !Ref Subnet]]
+             ]
+        ]
       Tags:
         - Key: Name
-          Value: !Join [ '', [ 'Database Subnet Group / ', !Ref 'AWS::StackName' ] ]
+          Value: !Join ['', ['Database Subnet Group / ', !Ref 'AWS::StackName']]
 
 Outputs:
   DatabaseInstance0:
@@ -209,4 +216,3 @@ Outputs:
     Value: !GetAtt ReadReplicaDB.Endpoint.Address
     Export:
       Name: !Sub "${AWS::StackName}-ReplicaDBEndpoint"
-
