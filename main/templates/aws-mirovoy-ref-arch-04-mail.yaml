@@ -245,6 +245,15 @@ Resources:
           -
             Effect: Allow
             Action:
+              - secretsmanager:GetSecretValue
+            Resource: !Join
+              - ''
+              - - !Sub "arn:aws:secretsmanager:${AWS::Region}:"
+                - !Sub "${AWS::AccountId}:secret:${DatabaseStackName}"
+                - "-dbcreds-??????"
+          -
+            Effect: Allow
+            Action:
               - ec2:AssociateAddress
               - ec2:DescribeAddress
             Resource: "*"
@@ -284,6 +293,8 @@ Resources:
           deploy_mailserver:
             - mount_log
             - mount_spool
+            - add_mysql
+            - config_mysql
             - install_mailserver
 #            - start_mailserver
           deploy_with_alt_admin:
@@ -321,14 +332,14 @@ Resources:
               owner: "root"
               group: "root"
           commands:
-# add skeleton files
+            # add skeleton files
             01_add_profile:
               command: "mv /tmp/profile /etc/skel/.profile"
               test: "test -e /tmp/profile"
             02_add_shrc:
               command: "mv /tmp/shrc /etc/skel/.shrc"
               test: "test -e /tmp/shrc"
-# add user
+            # add user
             03_add_user:
               command: !Join
                 - ''
@@ -340,7 +351,7 @@ Resources:
                 - - "test ! `/usr/bin/id -u "
                   - !Ref AdminUser
                   - " > /dev/null 2>&1`"
-# install ssh key
+            # install ssh key
             04_put_pub_key_for_ec2_user:
               command: !Join
                 - ''
@@ -367,7 +378,7 @@ Resources:
               command: "chmod 600 .ssh/authorized_keys"
               cwd: !Sub /home/${AdminUser}
               test: "test -e .ssh/authorized_keys"
-# enable sudo without password
+            # enable sudo without password
             10_allow_sudo:
               command: !Join
                 - ''
@@ -429,7 +440,7 @@ Resources:
               command: "sed -i 's;/var/log;/tmp;' auditd.conf"
               cwd: /etc/audit
               test: "grep /var/log auditd.conf"
-# systemctl and reload don't work on auditd
+            # systemctl and reload don't work on auditd
             07_restart_audit:
               command: "service auditd restart"
               test: "systemctl is-active auditd"
@@ -518,6 +529,75 @@ Resources:
             09_start_atd:
               command: "systemctl start atd"
               test: "systemctl is-enabled atd"
+        add_mysql:
+          files:
+            /tmp/mysql80.rpm:
+              source: !Join
+                - ''
+                - - https://dev.mysql.com/get/
+                  - mysql80-community-release-el7-2.noarch.rpm
+              mode: "000600"
+              owner: "root"
+              group: "root"
+          commands:
+            01_install_repo:
+              command: "yum -y localinstall mysql80.rpm"
+              cwd: /tmp
+              test: "test -e /tmp/mysql80.rpm"
+            02_install_mysql_client:
+              command: "yum -y install mysql-community-client"
+              test: "yum repolist enabled | grep mysql"
+        config_mysql:
+          files:
+            /tmp/setup.mysql:
+              content: !Sub |
+                CREATE DATABASE IF NOT EXISTS ${MailDBName};
+                CREATE USER IF NOT EXISTS '${MailDBUser}'@'%'
+                IDENTIFIED by '${MailDBPassword}';
+                GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP
+                ON ${MailDBName}.* TO '${MailDBUser}'@'%';
+              mode: "000400"
+              owner: "root"
+              group: "root"
+          commands:
+            01_create_mail_db:
+              command: !Join
+                # The aws CLI query to get the secrets from the Secrets
+                # Manager are a little gross here. OK, a lot gross — because
+                # the actual SecretString returns a String, not an object
+                # that is further queryiable with JMESPath. For example
+                # it might output
+                #
+                # {"user":"secretuser", "password":"secretpass"}
+                #
+                # the above could be further queried by jq ... but jq isn't
+                # installed be default, whereas grep is, so we do this the
+                # old fashioned way. grep.
+                - ''
+                - - "mysql -u "
+                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
+                  - "get-secret-value --secret-id "
+                  - !Sub "${DatabaseStackName}-dbcreds "
+                  - "--query SecretString --output text | grep -Po "
+                  - "'user\":\"\\K.*?(?=\")'` "
+                  - "--password="
+                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
+                  - "get-secret-value --secret-id "
+                  - !Sub "${DatabaseStackName}-dbcreds "
+                  - "--query SecretString --output text | grep -Po "
+                  - "'password\":\"\\K.*?(?=\")'` -h "
+                  - Fn::ImportValue: !Sub ${DatabaseStackName}-MasterDBEndpoint
+                  - " </tmp/setup.mysql"
+              test: !Join
+                - ''
+                - - "$(mysql -u "
+                  - !Ref MailDBUser
+                  - " --password='"
+                  - !Ref MailDBPassword
+                  - "' -h "
+                  - Fn::ImportValue: !Sub
+                      '${DatabaseStackName}-MasterDBEndpoint'
+                  - " >/dev/null 2>&1 </dev/null); (( $? != 0 ))"
         install_mailserver:
           packages:
             yum:
@@ -595,7 +675,7 @@ Resources:
               --resource MailServerInstance --region ${AWS::Region}
             /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} \
               --resource MailServerInstance --region ${AWS::Region}
-# Need to figure out how to break the below line :(
+# XXX Need to figure out how to break the below line :(
           - {DeployType: !If [NoAdminUser, deploy_mailserver, deploy_with_alt_admin], WantSwap: !If [SwapOn, "have_swap,", ""]}
 #    CreationPolicy:
 #      ResourceSignal:
