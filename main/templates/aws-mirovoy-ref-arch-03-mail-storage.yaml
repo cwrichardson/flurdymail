@@ -229,7 +229,7 @@ Resources:
       VolumeType: gp2
     DeletionPolicy: Retain
 
-  NoMasterSpoolEBS:
+  DelMasterSpoolEBS:
     Type: AWS::EC2::Volume
     Condition: DeleteSpool
     Properties:
@@ -280,7 +280,7 @@ Resources:
       VolumeType: gp2
     DeletionPolicy: Retain
 
-  NoMasterLogEBS:
+  DelMasterLogEBS:
     Type: AWS::EC2::Volume
     Condition: DeleteLog
     Properties:
@@ -331,7 +331,7 @@ Resources:
       VolumeType: gp2
     DeletionPolicy: Retain
 
-  NoBackupSpoolEBS:
+  DelBackupSpoolEBS:
     Type: AWS::EC2::Volume
     Condition: DeleteSpool
     Properties:
@@ -382,7 +382,7 @@ Resources:
       VolumeType: gp2
     DeletionPolicy: Retain
 
-  NoBackupLogEBS:
+  DelBackupLogEBS:
     Type: AWS::EC2::Volume
     Condition: DeleteLog
     Properties:
@@ -432,15 +432,41 @@ Outputs:
       Name: !Join [":", [!Ref "AWS::StackName", SwapOn]]
     Value: !If [CreateSwapVolumes, true, false]
   MasterSpoolEBS:
+    Condition: SnapshotSpool
     Description: EBS Volume for mail files on master mail server
     Export:
       Name: !Join [":", [!Ref "AWS::StackName", MasterSpoolEBS]]
     Value: !Ref MasterSpoolEBS
+  DelMasterSpoolEBS:
+    Condition: DeleteSpool
+    Description: EBS Volume for mail files on master mail server
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", MasterSpoolEBS]]
+    Value: !Ref DelMasterSpoolEBS
+  KeepMasterSpoolEBS:
+    Condition: RetainSpool
+    Description: EBS Volume for mail files on master mail server
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", MasterSpoolEBS]]
+    Value: !Ref KeepMasterSpoolEBS
   MasterLogEBS:
+    Condition: SnapshotLog
     Description: EBS Volume for log files on master mail server
     Export:
       Name: !Join [":", [!Ref "AWS::StackName", MasterLogEBS]]
     Value: !Ref MasterLogEBS
+  DelMasterLogEBS:
+    Condition: DeleteLog
+    Description: EBS Volume for log files on master mail server
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", MasterLogEBS]]
+    Value: !Ref DelMasterLogEBS
+  KeepMasterLogEBS:
+    Condition: RetainLog
+    Description: EBS Volume for log files on master mail server
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", MasterLogEBS]]
+    Value: !Ref KeepMasterLogEBS
   MasterSwap:
     Condition: CreateSwapVolumes
     Description: EBS Volume for swap on master mail server
@@ -448,15 +474,41 @@ Outputs:
       Name: !Join [":", [!Ref "AWS::StackName", MasterSwapEBS]]
     Value: !Ref MasterSwapEBS
   BackupSpoolEBS:
+    Condition: SnapshotSpool
     Description: EBS Volume for mail files on backup mail server
     Export:
       Name: !Join [":", [!Ref "AWS::StackName", BackupSpoolEBS]]
     Value: !Ref BackupSpoolEBS
+  DelBackupSpoolEBS:
+    Condition: DeleteSpool
+    Description: EBS Volume for mail files on backup mail server
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", BackupSpoolEBS]]
+    Value: !Ref DelBackupSpoolEBS
+  KeepBackupSpoolEBS:
+    Condition: RetainSpool
+    Description: EBS Volume for mail files on backup mail server
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", BackupSpoolEBS]]
+    Value: !Ref KeepBackupSpoolEBS
   BackupLogEBS:
+    Condition: SnapshotLog
     Description: EBS Volume for log files on backup mail server
     Export:
       Name: !Join [":", [!Ref "AWS::StackName", BackupLogEBS]]
     Value: !Ref BackupLogEBS
+  DelBackupLogEBS:
+    Condition: DeleteLog
+    Description: EBS Volume for log files on backup mail server
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", BackupLogEBS]]
+    Value: !Ref DelBackupLogEBS
+  KeepBackupLogEBS:
+    Condition: RetainLog
+    Description: EBS Volume for log files on backup mail server
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", BackupLogEBS]]
+    Value: !Ref KeepBackupLogEBS
   BackupSwapEBS:
     Condition: CreateSwapVolumes
     Description: EBS Volume for swap on backup mail server
