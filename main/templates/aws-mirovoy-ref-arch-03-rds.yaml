@@ -176,6 +176,7 @@ Resources:
           Value: !Join ['', ['Master DB / ', !Ref 'AWS::StackName']]
       VPCSecurityGroups:
         - !Ref DatabaseSecurityGroup
+
   ReadReplicaDB:
     Type: AWS::RDS::DBInstance
     Properties:
@@ -184,6 +185,7 @@ Resources:
       Tags:
         - Key: Name
           Value: !Join ['', ['Read Replica DB / ', !Ref 'AWS::StackName']]
+
   DataSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
@@ -200,6 +202,14 @@ Resources:
       Tags:
         - Key: Name
           Value: !Join ['', ['Database Subnet Group / ', !Ref 'AWS::StackName']]
+
+  DataSecretStrings:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: "Storage of master DB username & password."
+      SecretString: !Sub '{"user":"${DatabaseMasterUsername}",
+        "password":"${DatabaseMasterPassword}"}'
+      Name: !Join ['', [!Ref 'AWS::StackName', '-dbcreds']]
 
 Outputs:
   DatabaseInstance0:
