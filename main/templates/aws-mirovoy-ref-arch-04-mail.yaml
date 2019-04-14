@@ -2,8 +2,9 @@
 AWSTemplateFormatVersion: 2010-09-09
 
 Description: 'Mirovoy Reference Architecture - Create mail servers
-    This template creates a primary mail server that runs courier-postfix for
-    inbound and outbound mail, and a backup MX server in a separate AZ.'
+    This template creates a primary mail server that runs courier-postfix
+    for inbound and outbound mail, and a backup MX server in a
+    separate AZ.'
 
 Metadata:
 
@@ -11,16 +12,16 @@ Metadata:
     Description: Chris Richardson (cwr@mirovoysales.com)
   License:
     Description: 'Copyright 2018 Mirovoy Sales, s.r.o.  and its
-	affiliates. All Rights Reserved.  This is a derivative work
-	of an Amazon template, and as such falls under the derivate
-	works section of the the Amazon Software License (the
-	"License").  You may not use this file except in compliance
-	with the License. A copy of the License is located at
-	http://aws.amazon.com/asl/ This file is distributed on an
-	"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
-	either express or implied. See the License for the specific
-	language governing permissions and limitations under the
-	License.'
+      affiliates. All Rights Reserved.  This is a derivative work
+      of an Amazon template, and as such falls under the derivate
+      works section of the the Amazon Software License (the "License").
+      You may not use this file except in compliance with the
+      License. A copy of the License is located at
+      http://aws.amazon.com/asl/ This file is distributed on an "AS
+      IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+      either express or implied. See the License for the specific
+      language governing permissions and limitations under the
+      License.'
 
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -29,6 +30,8 @@ Metadata:
         Parameters:
           - AdminUser
           - AdminPubKey
+          - PrimaryServerName
+          - VirtualUID
           - EC2KeyName
           - MailInstanceType
           - MailAMIID
@@ -44,68 +47,151 @@ Metadata:
           - MailDBName
           - MailDBUser
           - MailDBPassword
+          - InsertTestData
+          - XandrosPass
+          - VivitaPass
+          - ExternalTestEmail
       - Label:
           default: AWS S3 Configuration
         Parameters:
           - MirovoyCFAssetsBucket
           - MYS3KeyPrefix
           - SkelFileDir
+      - Label:
+          default: Postfix Parameters
+        Parameters:
+          - Origin
+          - Banner
+          - RelayHost
+          - DelayWarningTime
+          - UnknownLocalErrorCode
+          - MaxQueueLifetime
+          - MinBackoffTime
+          - MaxBackoffTime
+          - HeloTimeout
+          - InetProtocols
+          - RecipientLimit
+          - SoftErrLimit
+          - HardErrLimit
+          - RootMailRecipient
 
     ParameterLabels:
       AdminUser:
         default: Alternative superuser account to create
       AdminPubKey:
         default: SSH public key for the AdminUser
+      Banner:
+        default: SMTPD banner message
+      DatabaseStackName:
+        default: Name for the stack that created the RDS instances
+      DelayWarningTime:
+        default: Wait before warning sender
       EC2KeyName:
         default: Existing Key Pair
+      ExternalTestEmail:
+        default: External email to test mail forwarding
+      HardErrLimit:
+        default: How many errors before block
+      HeloTimeout:
+        default: How long to wait
+      InetProtocols:
+        default: Which IP version to support
+      InsertTestData:
+        default: Insert test users and domains in database
       MailInstanceType:
         default: Mail Instance Type
       MailAMIID:
         default: AMI ID for Mail Servers
       MailSecurityGroup:
         default: Mail Security Group
-      DatabaseStackName:
-        default: Name for the stack that created the RDS instances
       MailDBName:
         default: Mail Database Name
       MailDBUser:
         default: Mail Database Username
       MailDBPassword:
         default: Mail Database Password
+      MaxBackoffTime:
+        default: Seconds between retries
+      MaxQueueLifetime:
+        default: How long to keep messages in queue
+      MinBackoffTime:
+        default: Seconds between retries
       MirovoyCFAssetsBucket:
         default: Mirovvoy CloudFront Assets S3 bucket name
       MYS3KeyPrefix:
         default: Mirovoy CloudFront Assets Bastion S3 bucket key prefix
+      Origin:
+        default: My origin
+      PrimaryServerName:
+        default: The name of the primary mail server
+      RecipientLimit:
+        default: Max in the "to" line
+      RelayHost:
+        default: Send outbound mail via
+      RootMailRecipient:
+        default: Who receives local mail for root
       SkelFileDir:
         default: S3 Directory for /etc/skel files
+      SoftErrLimit:
+        default: How many errors before backoff
       StorageStackName:
         default: Name for the stack that created the EBS volumes
       PrimarySubnet:
         default: Subnet in which to place the primary mail server
       BackupSubnet:
         default: Subnet in which to place the backup mail server
+      UnknownLocalErrorCode:
+        default: Temp or perm
       UseSwap:
         default: Mount swap volumes?
+      VirtualUID:
+        default: UID for the virtual user
+      VivitaPass:
+        default: Email password for test-user vivita
+      XandrosPass:
+        default: Email password for test-user xandros
 
 Parameters:
 
   AdminUser:
     AllowedPattern: "^[a-z][-a-z0-9]*$"
-    ConstraintDescription: "Must be a valid username for the OS to be used.
-      For sanity's sake, confining this to starting with a lower-case letter,
-      followed by an arbitrary number of lower-case letters, numbers, and the
-      dash character ('-')."
+    ConstraintDescription: "Must be a valid username for the OS to
+      be used.  For sanity's sake, confining this to starting with
+      a lower-case letter, followed by an arbitrary number of
+      lower-case letters, numbers, and the dash character ('-')."
     Default: 'none'
     Description: 'An alternate account (unix user) to be created on mail
       servers with superuser permissions.'
     Type: String
   AdminPubKey:
     Default: ''
-    Description: 'The public key text to be installed in the authorized_hosts
-      file for the alternate account created above. Will also be installed in
-      authorized_hosts for the default admin user (ec2-user). Probably just cut
-      and paste the contents of your id_rsa.pub file for the user.'
+    Description: 'The public key text to be installed in the
+      authorized_hosts file for the alternate account created above.
+      Will also be installed in authorized_hosts for the default
+      admin user (ec2-user). Probably just cut and paste the contents
+      of your id_rsa.pub file for the user.'
     Type: String
+  Banner:
+    Default: "$myhostname ESMTP $mail_name"
+    Description: What to display when someone connects for SMTP.
+      It should be enough to be useful, but not give away unnecessary
+      information to potential hackers.
+    Type: String
+  DelayWarningTime:
+    Default: 4h
+    Description: 'How long does mail remain undelivered before sending a
+      warning update to the sender?'
+    Type: String
+  PrimaryServerName:
+    AllowedPattern: ^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$
+    Default: 'mail.example.com'
+    Description: 'The fully qualified domain name for the primary mail server.'
+    Type: String
+  VirtualUID:
+    Default: 5000
+    Description: 'The UID to be assigned to the user "virtual" which owns all
+      mailboxes on the system.'
+    Type: Number
   DatabaseStackName:
     AllowedPattern: ^([a-zA-Z0-9]+[a-zA-Z0-9\-]*)$
     ConstraintDescription: "A stack name can contain only alphanumeric
@@ -113,6 +199,12 @@ Parameters:
       alphabetic character and can't be longer than 128 characters."
     Description: The name of the stack that was used to create the RDS instances
     MaxLength: 128
+    Type: String
+  ExternalTestEmail:
+    Default: ''
+    Description: If "insert test data" is enabled, mail for test user
+      karl@example.com will be set to forward to the email address you input
+      here.
     Type: String
   MailAMIID:
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
@@ -147,6 +239,45 @@ Parameters:
     Description: 'Name of an EC2 KeyPair. Your mail instances will launch with
       this KeyPair.'
     Type: AWS::EC2::KeyPair::KeyName
+  HardErrLimit:
+    Default: 20
+    Description: smtpd_hard_error_limit The maximal number of errors
+      a remote SMTP client is allowed to make without delivering
+      mail. The Postfix SMTP server disconnects when the limit is
+      exceeded.  Normally the default limit is 20, but it changes
+      under overload to just 1.
+    Type: Number
+  HeloTimeout:
+    Default: 60s
+    Description: smtp_helo_timeout The Postfix SMTP client time
+      limit for sending the HELO or EHLO command, and for receiving
+      the initial remote SMTP server response. The Postfix default
+      is 300s. Flurdy changes this to 60s. Not sure why, but it seems to work
+      for us. The default time unit is s (seconds).
+    Type: String
+  InetProtocols:
+    AllowedValues:
+      - ipv4
+      - ipv6
+      - all
+    Default: ipv4
+    Description: Support for IPv4 or IPv6. Postfix default config has "all",
+      but Flurdy sets it to IPv4, to avoid flooding logswith IPv6 errors. We
+      haven't tested anything other than "ipv4".
+    Type: String
+  InsertTestData:
+    AllowedValues:
+      - true
+      - false
+    Default: false
+    Description: "Add test users and domains to database. This is useful for
+      testing. The model is similar to the samle data provided at flurdy.
+      Three users are created: xandros@example.com, vivita@example,com, and
+      karl@example.com. example.com and example.net are both created as
+      domains, and all mail for example.net is forwarded to
+      xandros@example.com. All mail for karl@example.com is forwarded to an
+      external email you specify."
+    Type: String
   MailInstanceType:
     AllowedValues:
       - t2.nano
@@ -161,6 +292,29 @@ Parameters:
   MailSecurityGroup:
     Description: Select the mail security group.
     Type: AWS::EC2::SecurityGroup::Id
+  MaxBackoffTime:
+    Default: 4000s
+    Description: maximal_backoff_time The maximal time between attempts to
+      deliver a deferred message. The default time unit is s (seconds).
+      Time units are s (seconds), m (minutes), h (hours), d (days), w (weeks).
+    Type: String
+  MaxQueueLifetime:
+    Default: 5d
+    Description: maximal_queue_lifetime How long to keep messages
+      on queue before returning as failed.  Five days is pretty
+      normal, but there's nothing wrong with adjusting it up or
+      down if you have reason (e.g., your serving mail for people
+      who often go away for a week at a time and leave their server
+      off). Specify 0 when mail delivery should be tried only once.
+      Time units are s (seconds), m (minutes), h (hours), d (days), w (weeks).
+    Type: String
+  MinBackoffTime:
+    Default: 300s
+    Description: minimal_backoff_time The minimal time between attempts to
+      deliver a deferred message. The default time unit is s
+      (seconds).
+      Time units are s (seconds), m (minutes), h (hours), d (days), w (weeks).
+    Type: String
   MirovoyCFAssetsBucket:
     AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
     ConstraintDescription: 'Mirovoy CloudFront Assets Bucket name can include
@@ -179,11 +333,54 @@ Parameters:
       should be the top-level directory path inside the bucket, leading to the
       assets for this template (e.g., scripts directory, etc... are located)'
     Type: String
+  Origin:
+    AllowedValues:
+      - domain
+      - host
+    Default: domain
+    Description: myorigin For unix users on this machine posting
+      mail, what to append to the username? The full hostname or
+      the domain name?  Probably the domain name, but keep in mind
+      that this will be weird for root@
+    Type: String
+  RelayHost:
+    Default: ''
+    Description: "Leave blank if this mail server sends all outbound mail. If
+      you need to relay, e.g., through your ISP's server, enter that here."
+    Type: String
   SkelFileDir:
     Default: "var/skel/"
     Description: "Path under S3 prefix for Banner text to put in the
       alternate admin user's home dir, via /etc/skel/. Should end in a slash."
     Type: String
+  RecipientLimit:
+    Default: 50
+    Description: smtpd_recipient_limit The maximal number of
+      recipients that the Postfix SMTP server accepts per message
+      delivery request. The actual Postfix default is 1000; Flurdy
+      changes it to 16 because "effective stopper to mass spammers,
+      accidental copy in whole address list", but we find we regularly
+      send to more than 16 recipients in a single message.
+    Type: String
+  RootMailRecipient:
+    Description: The recipient for local root mail. It can be a
+      user on this machine (e.g., the user added as AltAdmin above),
+      in which case you'll need to log into the machine locally and
+      get check your mail periodically. Or, it can be a real email
+      address; or better, a real email distribution list (e.g.,
+      sysadmins@example.com) that goes to people who will read such
+      messages.
+    Type: String
+  SoftErrLimit:
+    Default: 3
+    Description: smtpd_soft_error_limit The number of errors a
+      remote SMTP client is allowed to make without delivering mail
+      before the Postfix SMTP server slows down all its responses.
+      The Postfix default is 10, and you may want to set it to that,
+      or even higher, while you're testing your deployment, so you
+      don't get slowed down, but once things are working properly
+      you should definitely come lower it
+    Type: Number
   StorageStackName:
     AllowedPattern: ^([a-zA-Z0-9]+[a-zA-Z0-9\-]*)$
     ConstraintDescription: "A stack name can contain only alphanumeric
@@ -198,12 +395,31 @@ Parameters:
   BackupSubnet:
     Description: 'Subnet in which to place the backup mail server.'
     Type: List<AWS::EC2::Subnet::Id>
+  UnknownLocalErrorCode:
+    AllowedValues:
+      - 450
+      - 550
+    Default: 550
+    Description: What code to send if local lookup on an address fails. Should
+      be 550 (reject mail), but is often worth setting to 450 (try again later)
+      while you make sure your local_recipient_maps settings are OK.
+    Type: Number
   UseSwap:
     AllowedValues:
       - true
       - false
     Default: true
     Description: Use a volume created by the storage template for swap
+    Type: String
+  VivitaPass:
+    Default: ''
+    Description: If insert test data is enabled, this will be the password
+      for test user "vivita".
+    Type: String
+  XandrosPass:
+    Default: ''
+    Description: If insert test data is enabled, this will be the password
+      for test user "xandros".
     Type: String
 
 Conditions:
@@ -212,6 +428,12 @@ Conditions:
     !Equals [!Ref AdminUser, 'none']
   SwapOn:
     !Equals [!Ref UseSwap, true]
+  DefaultBanner:
+    !Equals [!Ref Banner, '$myhostname ESMTP $mail_name']
+  DomainOrigin:
+    !Equals [!Ref Origin, 'domain']
+  UseTestData:
+    !Equals [!Ref InsertTestData, true]
 
 Resources:
 
@@ -290,17 +512,21 @@ Resources:
         configSets:
           have_swap:
             - mount_swap
+          insert_test_data:
+            - add_test
           deploy_mailserver:
             - mount_log
             - mount_spool
             - add_mysql
             - config_mysql
             - install_mailserver
+            - config_postfix
 #            - start_mailserver
           deploy_with_alt_admin:
             - add_admin
             -
               ConfigSet: "deploy_mailserver"
+
         add_admin:
           packages:
             yum:
@@ -389,6 +615,57 @@ Resources:
                 - - "test ! `grep "
                   - !Ref AdminUser
                   - " /etc/sudoers.d/cloud-init >/dev/null 2>&1`"
+
+        add_test:
+          files:
+            /tmp/test.mysql:
+              content: !Sub |
+                USE ${MailDBName};
+                INSERT INTO domains (domain) VALUES
+                        ('example.com'),
+                        ('example.net');
+                INSERT INTO aliases (mail,destination) VALUES
+                        ('@mail.examle.com','@example.com'),
+                        ('postmaster@example.net','postmaster@localhost'),
+                        ('abuse@example.net','abuse@localhost'),
+                        ('postmaster@example.com','postmaster@localhost'),
+                        ('abuse@example.com','abuse@localhost');
+                INSERT INTO users (id,name,maildir,crypt) VALUES
+                        ('xandros@example.com','xandros','xandros/',
+                            SHA2('${XandrosPass}', 256)),
+                        ('vivita@example.com','xandros','xandros/',
+                            SHA2('${VivitaPass}', 256));
+                INSERT INTO aliases (mail,destination) VALUES
+                        ('xandros@example.com','xandros@example.com'),
+                        ('vivita@example.com','vivita@example.com'),
+                        ('@example.net','xandros@example.com'),
+                        ('karl@example.com','${ExternalTestEmail}');
+              mode: "000400"
+              owner: "root"
+              group: "root"
+          commands:
+            01_insert_data:
+              command: !Join
+                - ''
+                - - "mysql -u "
+                  - !Ref MailDBUser
+                  - " --password='"
+                  - !Ref MailDBPassword
+                  - "' -h "
+                  - Fn::ImportValue: !Sub
+                      '${DatabaseStackName}-MasterDBEndpoint'
+                  - " </tmp/test.mysql"
+              test: !Join
+                - ''
+                - - "$(mysql -u "
+                  - !Ref MailDBUser
+                  - " --password='"
+                  - !Ref MailDBPassword
+                  - "' -h "
+                  - Fn::ImportValue: !Sub
+                      '${DatabaseStackName}-MasterDBEndpoint'
+                  - " >/dev/null 2>&1 </dev/null)"
+
         mount_swap:
           commands:
             01_make_swap:
@@ -409,6 +686,7 @@ Resources:
                 - - "! grep `/usr/sbin/blkid | grep /dev/xvdm "
                   - "| grep -o UUID.*[[:blank:]] "
                   - "| cut -f2 -d\\\"` /etc/fstab"
+
         mount_log:
           files:
             /tmp/journald.conf:
@@ -491,6 +769,7 @@ Resources:
             19_reload_syslog:
               command: "systemctl force-reload rsyslog"
               test: "systemctl is-active rsyslog"
+
         mount_spool:
           commands:
             01_stop_postfix:
@@ -529,6 +808,7 @@ Resources:
             09_start_atd:
               command: "systemctl start atd"
               test: "systemctl is-enabled atd"
+
         add_mysql:
           files:
             /tmp/mysql80.rpm:
@@ -547,7 +827,26 @@ Resources:
             02_install_mysql_client:
               command: "yum -y install mysql-community-client"
               test: "yum repolist enabled | grep mysql"
+
         config_mysql:
+          #
+          # There doesn't appear to currently be a way to create group with
+          # the same name as a user and to assign it an ID. When you specify
+          # users here, the command automatically creates a group of the same
+          # name, and lets the system pick the GID. If you try and create a
+          # group, or to assign a group of the same name as part of the user
+          # block, cfn-init fails. So, for example, we can't specify
+          # VirtualUID = 5000, VirtualGID = 5000, and create a user and group
+          # with those IDs. Since we need the GID early (to include here
+          # in the MySQL configuration), we create the user "virtual", and
+          # assign it the UID we want. At the same time, the group "virtual"
+          # is created, but we don't know the ID, so we place the token
+          # VIRTUALGID in the file, and swap it out with sed after the user
+          # is created.
+          #
+          users:
+            virtual:
+              uid: !Ref VirtualUID
           files:
             /tmp/setup.mysql:
               content: !Sub |
@@ -561,6 +860,7 @@ Resources:
               group: "root"
             /tmp/tables.mysql:
               content: !Sub |
+                USE ${MailDBName};
                 CREATE TABLE IF NOT EXISTS `aliases` (
                 `pkid` smallint(3) NOT NULL auto_increment,
                 `mail` varchar(120) NOT NULL default '',
@@ -579,8 +879,8 @@ Resources:
                 CREATE TABLE IF NOT EXISTS `users` (
                 `id` varchar(128) NOT NULL default '',
                 `name` varchar(128) NOT NULL default '',
-                `uid` smallint(5) unsigned NOT NULL default '5000',
-                `gid` smallint(5) unsigned NOT NULL default '5000',
+                `uid` smallint(5) unsigned NOT NULL default '${VirtualUID}',
+                `gid` smallint(5) unsigned NOT NULL default 'VIRTUALGID',
                 `home` varchar(255) NOT NULL default '/var/spool/mail/virtual',
                 `maildir` varchar(255) NOT NULL default 'blah/',
                 `enabled` tinyint(1) NOT NULL default '1',
@@ -591,6 +891,23 @@ Resources:
                 PRIMARY KEY  (`id`),
                 UNIQUE KEY `id` (`id`)
                 ) ;
+              mode: "000400"
+              owner: "root"
+              group: "root"
+            /tmp/required.mysql:
+              content: !Sub |
+                USE ${MailDBName};
+                INSERT INTO domains (domain) VALUES
+                        ('localhost'),
+                        ('localhost.localdomain');
+                INSERT INTO aliases (mail,destination) VALUES
+                        ('postmaster@localhost','root@localhost'),
+                        ('sysadmin@localhost','root@localhost'),
+                        ('webmaster@localhost','root@localhost'),
+                        ('abuse@localhost','root@localhost'),
+                        ('root@localhost','root@localhost'),
+                        ('@localhost','root@localhost'),
+                        ('@localhost.localdomain','@localhost');
               mode: "000400"
               owner: "root"
               group: "root"
@@ -625,15 +942,19 @@ Resources:
                   - " </tmp/setup.mysql"
               test: !Join
                 - ''
-                - - "$(mysql -u "
+                - - "! $(mysql -u "
                   - !Ref MailDBUser
                   - " --password='"
                   - !Ref MailDBPassword
                   - "' -h "
                   - Fn::ImportValue: !Sub
                       '${DatabaseStackName}-MasterDBEndpoint'
-                  - " >/dev/null 2>&1 </dev/null); (( $? != 0 ))"
-            01_create_tables:
+                  - " >/dev/null 2>&1 </dev/null)"
+            02_vgid_tables:
+              command: sed -i "s/VIRTUALGID/`id -g virtual`/" /tmp/tables.mysql
+              cwd: /tmp
+              test: test -f /tmp/tables.mysql
+            03_create_tables:
               command: !Join
                 - ''
                 - - "mysql -u "
@@ -653,7 +974,29 @@ Resources:
                   - "' -h "
                   - Fn::ImportValue: !Sub
                       '${DatabaseStackName}-MasterDBEndpoint'
-                  - " >/dev/null 2>&1 </dev/null); (( $? != 0 ))"
+                  - " >/dev/null 2>&1 </dev/null)"
+            04_required_domains_and_users:
+              command: !Join
+                - ''
+                - - "mysql -u "
+                  - !Ref MailDBUser
+                  - " --password='"
+                  - !Ref MailDBPassword
+                  - "' -h "
+                  - Fn::ImportValue: !Sub
+                      '${DatabaseStackName}-MasterDBEndpoint'
+                  - " </tmp/required.mysql"
+              test: !Join
+                - ''
+                - - "$(mysql -u "
+                  - !Ref MailDBUser
+                  - " --password='"
+                  - !Ref MailDBPassword
+                  - "' -h "
+                  - Fn::ImportValue: !Sub
+                      '${DatabaseStackName}-MasterDBEndpoint'
+                  - " >/dev/null 2>&1 </dev/null)"
+
         install_mailserver:
           packages:
             yum:
@@ -702,6 +1045,263 @@ Resources:
                 files:
                   - "/etc/cfn/cfn-hup.conf"
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
+        config_postfix:
+          files:
+            /etc/mailname:
+              content: !Ref PrimaryServerName
+              mode: "000644"
+              owner: "root"
+              group: "root"
+            /etc/postfix/mysql_mailbox.cf:
+              content:
+                Fn::Sub:
+                  - |
+                    user=${MailDBUser}
+                    password=${MailDBPassword}
+                    dbname=${MailDBName}
+                    table=users
+                    select_field=maildir
+                    where_field=id
+                    hosts=${RDSHost}
+                    additional_conditions = and enabled = 1
+                  - RDSHost:
+                      Fn::ImportValue:
+                        !Sub '${DatabaseStackName}-MasterDBEndpoint'
+              mode: "000640"
+              owner: "postfix"
+              group: "postfix"
+            /etc/postfix/mysql_alias.cf:
+              content:
+                Fn::Sub:
+                  - |
+                    user=${MailDBUser}
+                    password=${MailDBPassword}
+                    dbname=${MailDBName}
+                    table=aliases
+                    select_field=destination
+                    where_field=mail
+                    hosts=${RDSHost}
+                    additional_conditions = and enabled = 1
+                  - RDSHost:
+                      Fn::ImportValue:
+                        !Sub '${DatabaseStackName}-MasterDBEndpoint'
+              mode: "000640"
+              owner: "postfix"
+              group: "postfix"
+            /etc/postfix/mysql_domains.cf:
+              content:
+                Fn::Sub:
+                  - |
+                    user=${MailDBUser}
+                    password=${MailDBPassword}
+                    dbname=${MailDBName}
+                    table=domains
+                    select_field=domain
+                    where_field=domain
+                    hosts=${RDSHost}
+                    additional_conditions = and enabled = 1
+                  - RDSHost:
+                      Fn::ImportValue:
+                        !Sub '${DatabaseStackName}-MasterDBEndpoint'
+              mode: "000640"
+              owner: "postfix"
+              group: "postfix"
+
+            /tmp/postfix_extras.cf:
+              content:
+                !Sub |
+                  #
+                  # Added by cfn-init
+                  # See http://flurdy.com/docs/postfix/#config for details
+                  delay_warning_time = ${DelayWarningTime}
+                  maximal_queue_lifetime = ${MaxQueueLifetime}
+                  minimal_backoff_time = ${MinBackoffTime}
+                  maximal_backoff_time = ${MaxBackoffTime}
+                  smtp_helo_timeout = ${HeloTimeout}
+                  smtpd_recipient_limit = ${RecipientLimit}
+                  smtpd_soft_error_limit = ${SoftErrLimit}
+                  smtpd_hard_error_limit = ${HardErrLimit}
+                  smtpd_helo_restrictions = permit_mynetworks, warn_if_reject
+                      reject_non_fqdn_hostname, reject_invalid_hostname, permit
+                  smtpd_sender_restrictions = permit_mynetworks,
+                      warn_if_reject reject_non_fqdn_sender,
+                      reject_unknown_sender_domain, reject_unauth_pipelining,
+                      permit
+                  smtpd_client_restrictions = reject_rbl_client
+                      sbl.spamhaus.org, reject_rbl_client blackholes.easynet.nl
+                  smtpd_recipient_restrictions = reject_unauth_pipelining,
+                      permit_mynetworks, reject_non_fqdn_recipient,
+                      reject_unknown_recipient_domain,
+                      reject_unauth_destination, permit
+                  smtpd_data_restrictions = reject_unauth_pipelining
+                  smtpd_helo_required = yes
+                  smtpd_delay_reject = yes
+                  disable_vrfy_command = yes
+                  virtual_mailbox_base = /var/spool/mail/virtual
+                  virtual_mailbox_maps = mysql:/etc/postfix/mysql_mailbox.cf
+                  virtual_alias_maps = mysql:/etc/postfix/mysql_alias.cf
+                  virtual_mailbox_domains = mysql:/etc/postfix/mysql_domains.cf
+                  virtual_mailbox_domains = mysql:/etc/postfix/mysql_domains.cf
+                  virtual_uid_maps = static:${VirtualUID}
+                  virtual_gid_maps = static:VIRTUALGID
+              mode: "000640"
+              owner: "root"
+              group: "root"
+
+          commands:
+            01_no_hostname:
+              command: "sed -i 's/^myhostname/#myhostname/' main.cf"
+              cwd: /etc/postfix
+              test: "grep ^myshostname main.cf"
+            02_no_origin:
+              command: "sed -i 's/^myorigin/#myorigin/' main.cf"
+              cwd: /etc/postfix
+              test: "grep ^myorigin main.cf"
+            03_my_origin:
+              command:
+                Fn::If:
+                  - DomainOrigin
+                  - !Join
+                    - ''
+                    - - "sed -i "
+                      - "'s/^#myorigin.*domain/myorigin = $mydomain/' main.cf"
+                  - !Join
+                    - ''
+                    - - "sed -i "
+                      - "'s/^#myorigin.*host/myorigin = $myhostname/' main.cf"
+              cwd: /etc/postfix
+            04_smtpd_banner:
+              command:
+                Fn::If:
+                  - DefaultBanner
+                  - !Join
+                    - ''
+                    - - "sed -i "
+                      - "'s/^#smtpd_banner\\(.*mail_name$\\)/"
+                      - "smtpd_banner\\1/' main.cf"
+                  - !Join
+                    - ''
+                    - - "tac main.cf | awk '!p && /^#smtpd_banner/"
+                      - "{print \"smtpd_banner = "
+                      - !Ref Banner
+                      - "\"; p=1} 1' | tac >> /tmp/banner.cf && "
+                      - "mv /tmp/banner.cf main.cf"
+              cwd: /etc/postfix
+            05_relay_host:
+              command: !Join
+                - ''
+                - - "tac main.cf | awk '!p && /^#relayhost/"
+                  - "{ print\"relayhost = "
+                  - !Ref RelayHost
+                  - "\"; p=1} 1' | tac >> /tmp/relay.cf && "
+                  - "mv /tmp/relay.cf main.cf"
+              cwd: /etc/postfix
+              test: "! grep ^relayhost main.cf"
+            06_interfaces:
+              command: !Join
+                - ''
+                - - "sed -i 's/^inet_interfaces.*/inet_interfaces = all/' "
+                  - "main.cf"
+              cwd: /etc/postfix
+            07_networks_style:
+              command: !Join
+                - ''
+                - - "sed -i 's/^#mynetworks_style = host/"
+                  - "mynetworks_style = host/' main.cf"
+              cwd: /etc/postfix
+              test: "! grep ^mynetworks_style main.cf"
+            08_inet_protocols:
+              command: !Join
+                - ''
+                - - "sed -i 's/^inet_protocols =.*/"
+                  - "inet_protocols = "
+                  - !Ref InetProtocols
+                  - "/' main.cf"
+              cwd: /etc/postfix
+            09_local_recipient_maps:
+              command: !Join
+                - ''
+                - - "sed -i 's/^#local_recipient_maps =$/"
+                  - "local_recipient_maps =/' main.cf"
+              cwd: /etc/postfix
+              test: "! grep ^local_recipient_maps main.cf"
+            10_no_my_destination:
+              command: "sed -i 's/^mydestination/#mydestination/' main.cf"
+              cwd: /etc/postfix
+              test: "grep ^mydestination main.cf"
+            11_my_destination:
+              command: !Join
+                - ''
+                - - "sed -i '0,/^#mydestination.*/s/^#mydestination.*/"
+                  - "mydestination =\\\n&/' main.cf"
+              cwd: /etc/postfix
+            12_unknown_local_reject_code:
+              command: !Join
+                - ''
+                - - "sed -i 's/^unknown_local_recipient_reject_code.*/"
+                  - "unknown_local_recipient_reject_code = "
+                  - !Ref UnknownLocalErrorCode
+                  - "'/ main.cf"
+              cwd: /etc/postfix
+            #
+            # Not sure why we do this. Maybe the OS is more likely to mangle
+            # alias_maps than postfix is?
+            #
+            13_no_alias_maps:
+              command: "sed -i 's/^alias_maps/#alias_maps/' main.cf"
+              cwd: /etc/postfix
+              test: "grep ^alias_maps main.cf"
+            14_my_alias_maps:
+              command: !Join
+                - ''
+                - - "tac main.cf | awk '!p && /^#alias_maps/"
+                  - "{ print\"alias_maps = hash:/etc/postfix/aliases\""
+                  - "; p=1} 1' | tac >> /tmp/aliasmaps.cf && "
+                  - "mv /tmp/aliasmaps.cf main.cf"
+              cwd: /etc/postfix
+            15_no_alias_db:
+              command: "sed -i 's/^alias_database/#alias_database/' main.cf"
+              cwd: /etc/postfix
+              test: "grep ^alias_database main.cf"
+            16_alias_db:
+              command: !Join
+                - ''
+                - - "tac main.cf | awk '!p && /^#alias_database/"
+                  - "{ print\"alias_database = hash:/etc/postfix/aliases\""
+                  - "; p=1} 1' | tac >> /tmp/aliasdb.cf && "
+                  - "mv /tmp/aliasdb.cf main.cf"
+              cwd: /etc/postfix
+            17_gvid_extra_config:
+              command: "sed -i \"s/VIRTUALGID/`id -g virtual`/\" \
+                postfix_extras.cf"
+              cwd: /tmp
+              test: "test -f postfix_extras.cf"
+            18_extra_config:
+              command: "cat /tmp/postfix_extras.cf >> main.cf"
+              cwd: /etc/postfix
+              test: "test -f /tmp/postfix_extras.cf"
+            19_mv_aliases:
+              command: "cp /etc/aliases ."
+              cwd: /etc/postfix
+              test: "test -f /etc/aliases"
+            20_add_root_email:
+              command: !Join
+                - ''
+                - - "echo \"root:	"
+                  - !Ref RootMailRecipient
+                  - "\" >> aliases"
+              cwd: /etc/postfix
+              test: "! grep ^root"
+            21_update_aliases:
+              command: "postalias aliases"
+              cwd: /etc/postfix
+              test: "test -f aliases"
+            22_make_mail_dirs:
+              command: "mkdir /var/spool/mail/virtual"
+              test: "test ! -e /var/spool/mail/virtual"
+            23_chown_mail_dirs:
+              command: "chown -R virtual:virtual /var/spool/mail/virtual"
+              test: "test -d /var/spool/mail/virtual"
 #        start_mailserver:
 #          services:
 #            sysvinit:
@@ -726,13 +1326,14 @@ Resources:
             #!/bin/bash -xe
             yum update -y
             yum install -y aws-cfn-bootstrap
-            /opt/aws/bin/cfn-init --configsets ${WantSwap}${DeployType} \
+            /opt/aws/bin/cfn-init \
+              --configsets ${WantSwap}${DeployType}${InsertData} \
               --verbose --stack ${AWS::StackName} \
               --resource MailServerInstance --region ${AWS::Region}
             /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} \
               --resource MailServerInstance --region ${AWS::Region}
 # XXX Need to figure out how to break the below line :(
-          - {DeployType: !If [NoAdminUser, deploy_mailserver, deploy_with_alt_admin], WantSwap: !If [SwapOn, "have_swap,", ""]}
+          - {DeployType: !If [NoAdminUser, deploy_mailserver, deploy_with_alt_admin], WantSwap: !If [SwapOn, "have_swap,", ""], InsertData: !If [UseTestData, ",insert_test_data", ""]}
 #    CreationPolicy:
 #      ResourceSignal:
 #        Count: 1
