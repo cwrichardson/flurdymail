@@ -63,17 +63,17 @@ Metadata:
           - Origin
           - Banner
           - RelayHost
-          - DelayWarningTime
           - UnknownLocalErrorCode
+          - RootMailRecipient
+          - InetProtocols
+          - DelayWarningTime
           - MaxQueueLifetime
           - MinBackoffTime
           - MaxBackoffTime
           - HeloTimeout
-          - InetProtocols
           - RecipientLimit
           - SoftErrLimit
           - HardErrLimit
-          - RootMailRecipient
 
     ParameterLabels:
       AdminUser:
@@ -521,6 +521,7 @@ Resources:
             - config_mysql
             - install_mailserver
             - config_postfix
+            - config_dovecot
 #            - start_mailserver
           deploy_with_alt_admin:
             - add_admin
@@ -621,21 +622,21 @@ Resources:
             /tmp/test.mysql:
               content: !Sub |
                 USE ${MailDBName};
-                INSERT INTO domains (domain) VALUES
+                REPLACE INTO domains (domain) VALUES
                         ('example.com'),
                         ('example.net');
-                INSERT INTO aliases (mail,destination) VALUES
+                REPLACE INTO aliases (mail,destination) VALUES
                         ('@mail.examle.com','@example.com'),
                         ('postmaster@example.net','postmaster@localhost'),
                         ('abuse@example.net','abuse@localhost'),
                         ('postmaster@example.com','postmaster@localhost'),
                         ('abuse@example.com','abuse@localhost');
-                INSERT INTO users (id,name,maildir,crypt) VALUES
+                REPLACE INTO users (id,name,maildir,crypt) VALUES
                         ('xandros@example.com','xandros','xandros/',
                             SHA2('${XandrosPass}', 256)),
                         ('vivita@example.com','xandros','xandros/',
                             SHA2('${VivitaPass}', 256));
-                INSERT INTO aliases (mail,destination) VALUES
+                REPLACE INTO aliases (mail,destination) VALUES
                         ('xandros@example.com','xandros@example.com'),
                         ('vivita@example.com','vivita@example.com'),
                         ('@example.net','xandros@example.com'),
@@ -874,7 +875,8 @@ Resources:
                 `domain` varchar(120) NOT NULL default '',
                 `transport` varchar(120) NOT NULL default 'virtual:',
                 `enabled` tinyint(1) NOT NULL default '1',
-                PRIMARY KEY  (`pkid`)
+                PRIMARY KEY  (`pkid`),
+                UNIQUE KEY `domain` (`domain`)
                 ) ;
                 CREATE TABLE IF NOT EXISTS `users` (
                 `id` varchar(128) NOT NULL default '',
@@ -897,10 +899,10 @@ Resources:
             /tmp/required.mysql:
               content: !Sub |
                 USE ${MailDBName};
-                INSERT INTO domains (domain) VALUES
+                REPLACE INTO domains (domain) VALUES
                         ('localhost'),
                         ('localhost.localdomain');
-                INSERT INTO aliases (mail,destination) VALUES
+                REPLACE INTO aliases (mail,destination) VALUES
                         ('postmaster@localhost','root@localhost'),
                         ('sysadmin@localhost','root@localhost'),
                         ('webmaster@localhost','root@localhost'),
@@ -1002,6 +1004,8 @@ Resources:
             yum:
               awslogs: []
               postfix: []
+              dovecot: []
+              dovecot-mysql: []
           files:
             /etc/cfn/cfn-hup.conf:
               content: !Sub |
@@ -1045,6 +1049,7 @@ Resources:
                 files:
                   - "/etc/cfn/cfn-hup.conf"
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
+
         config_postfix:
           files:
             /etc/mailname:
@@ -1302,6 +1307,107 @@ Resources:
             23_chown_mail_dirs:
               command: "chown -R virtual:virtual /var/spool/mail/virtual"
               test: "test -d /var/spool/mail/virtual"
+
+        config_dovecot:
+          commands:
+            01_disable_protocols:
+              command: "sed -i 's/^protocols =/#protocols =/' dovecot.conf"
+              cwd: /etc/dovecot
+              test: "grep ^protocols dovecot.conf"
+            02_enable_protocols:
+              command: !Join
+                - ''
+                - - "sed -i '0,/^#protocols =.*/s/^#protocols =.*/"
+                  - "protocols = imap lmtp\\\n&/' dovecot.conf"
+              cwd: /etc/dovecot
+              test: "! grep ^protocols dovecot.conf"
+            03_disable_plaintext_auth:
+              command: "sed -i \
+	        's/^#disable_plaintext_auth =/disable_plaintext_auth =/' \
+		10-auth.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "grep ^#disable_plaintext_auth 10-auth.conf"
+            04_disable_existing_auth_mech:
+              command: "sed -i \
+	        's/^auth_mechanisms =/#auth_mechanisms =/' 10-auth.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "grep ^auth_mechanisms 10-auth.conf"
+            05_enable_auth_mech:
+              command: !Join
+                - ''
+                - - "sed -i '0,/^#auth_mechanisms =.*/s/^#auth_mechanisms =.*/"
+                  - "auth_mechanisms = plain login\\\n&/' 10-auth.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "! grep ^auth_mechanisms 10-auth.conf"
+            06_include_auth_sql:
+              command: "sed -i \
+	        's/^#!include auth-sql.conf.ext/!include auth-sql.conf.ext/' \
+		10-auth.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "grep ^#!include.auth-sql.conf.ext 10-auth.conf"
+            07_disclude_auth_system:
+              command: !Join
+                - ''
+                - - "sed -i 's/^!include auth-system.conf.ext/"
+                  - "#!include auth-system.conf.ext/' 10-auth.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "grep ^!include.auth-system.conf.ext 10-auth.conf"
+            08_sensible_logging:
+              command: !Join
+                - ''
+                - - "sed -i '0,/^#login_log_format_elements =.*/"
+                  - "s/^#login_log_format_elements =.*/"
+                  - "login_log_format_elements = user=<%u> method=%m "
+                  - "rip=%r lip=%l mpid=%e %c\\\n&/' 10-logging.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "! grep ^login_log_format_elements 10-logging.conf"
+            09_mail_location:
+              command: !Join
+                - ''
+                - - "tac 10-mail.conf | awk '!p && /^#mail_location/"
+                  - "{ print\"mail_location = maildir:/var/mail/virtual/%u\""
+                  - "; p=1} 1' | tac >> /tmp/maillocation.conf && "
+                  - "mv /tmp/maillocation.conf 10-mail.conf"
+              cwd: /etc/dovecot/conf.d
+            10_fix_namespace:
+              command: !Join
+                - ''
+                - - "sed -i '/^namespace inbox/,/}/ "
+                  - "s/#separator =/separator = ./; "
+                  - "/^namespace inbox/,/}/ "
+                  - "s/#prefix =/prefix = INBOX\\./' 10-mail.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "grep ^namespace.inbox 10-mail.conf"
+            11_set_mail_uid:
+              command: !Join
+                - ''
+                - - "sed -i 's/^#mail_uid =/mail_uid = "
+                  - !Ref VirtualUID
+                  - "/' 10-mail.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "! grep ^mail_uid 10-mail.conf"
+            12_set_mail_gid:
+              command: !Join
+                - ''
+                - - "sed -i \"s/^#mail_gid =/mail_gid = `id -g virtual`/\""
+                  - " 10-mail.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "! grep ^mail_gid 10-mail.conf"
+            13_set_priv_group:
+              command: !Join
+                - ''
+                - - "sed -i 's/#mail_privileged_group =/"
+                  - "mail_privileged_group = virtual/' 10-mail.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "! grep ^mail_privileged_group 10-mail.conf"
+            14_disable_pop3:
+              command: !Join
+                - ''
+                - - "sed -i '/^service pop3/,/^}/ "
+                  - "s/#port =.*/port = 0/' 10-master.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "grep ^service.pop3-login 10-master.conf"
+
 #        start_mailserver:
 #          services:
 #            sysvinit:
@@ -1332,8 +1438,10 @@ Resources:
               --resource MailServerInstance --region ${AWS::Region}
             /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} \
               --resource MailServerInstance --region ${AWS::Region}
-# XXX Need to figure out how to break the below line :(
-          - {DeployType: !If [NoAdminUser, deploy_mailserver, deploy_with_alt_admin], WantSwap: !If [SwapOn, "have_swap,", ""], InsertData: !If [UseTestData, ",insert_test_data", ""]}
+          - {DeployType: !If [NoAdminUser, deploy_mailserver,
+                              deploy_with_alt_admin],
+             WantSwap: !If [SwapOn, "have_swap,", ""],
+             InsertData: !If [UseTestData, ",insert_test_data", ""]}
 #    CreationPolicy:
 #      ResourceSignal:
 #        Count: 1
