@@ -74,6 +74,11 @@ Metadata:
           - RecipientLimit
           - SoftErrLimit
           - HardErrLimit
+      - Label:
+          default: Dovecot Parameters
+        Parameters:
+          - SSLCert
+          - MaxUserConnections
 
     ParameterLabels:
       AdminUser:
@@ -114,6 +119,8 @@ Metadata:
         default: Seconds between retries
       MaxQueueLifetime:
         default: How long to keep messages in queue
+      MaxUserConnections:
+        default: Maximum number of user connections
       MinBackoffTime:
         default: Seconds between retries
       MirovoyCFAssetsBucket:
@@ -134,6 +141,8 @@ Metadata:
         default: S3 Directory for /etc/skel files
       SoftErrLimit:
         default: How many errors before backoff
+      SSLCert:
+        default: ARN for the Amazon Certificate Manager cert
       StorageStackName:
         default: Name for the stack that created the EBS volumes
       PrimarySubnet:
@@ -232,6 +241,15 @@ Parameters:
     AllowedPattern: ^([a-zA-Z0-9]*)$
     Description: The MySQL mail database name.
     Type: String
+  MaxUserConnections:
+    Default: 25
+    Description: The maximum number of IMAP connections allwed for a user
+      from each IP address. Dovecot default is 10, but Jon Jerome's guide
+      says, "Some clients open up more user connections at once than you
+      might think.... If your email client gets random failures to connect
+      during a session, especially a webmail client like Roundcube, try
+      increasing this value."
+    Type: Number
   EC2KeyName:
     AllowedPattern: ^([a-zA-Z0-9 @.`~!#$%^&*()_+,\\-])*$
     ConstraintDescription: 'Must be letters (upper or lower), numbers, and
@@ -352,6 +370,12 @@ Parameters:
     Default: "var/skel/"
     Description: "Path under S3 prefix for Banner text to put in the
       alternate admin user's home dir, via /etc/skel/. Should end in a slash."
+    Type: String
+  SSLCert:
+    AllowedPattern: (^arn:aws:acm:.*:certificate/[a-f0-9\\-]*$)|(^$)
+    ConstraintDescription: Must be a valid AWS certificate arn.
+    Default: ''
+    Description: ARN of the certificate to be installed for dovecot SSL
     Type: String
   RecipientLimit:
     Default: 50
@@ -479,6 +503,11 @@ Resources:
               - ec2:AssociateAddress
               - ec2:DescribeAddress
             Resource: "*"
+          -
+            Effect: Allow
+            Action:
+              - acm:GetCertificate
+            Resource: !Ref SSLCert
           -
             Effect: Allow
             Action:
@@ -1309,6 +1338,67 @@ Resources:
               test: "test -d /var/spool/mail/virtual"
 
         config_dovecot:
+
+          files:
+            /etc/dovecot/dovecot-sql.conf.ext:
+              content:
+                Fn::Sub:
+                  - |
+                    #
+                    # Added by cfn-init
+                    # See https://xec.net/dovecot-migration/ for details
+                    #
+                    #For database driver, we want mysql:
+                    driver = mysql
+
+                    #The connect string will point to the maildb
+                    #database on the local machine, with the user and
+                    #password you defined when you set it up according
+                    #to Flurdy.
+
+                    connect = host=${RDSHost} \
+                            dbname=${MailDBName} \
+                            user=${MailDBUser} password=${MailDBPassword}
+
+                    #We'll be using the encrypted password from the mysql
+                    #database. This is a change from xec.net and Flurdy,
+                    #which use CRYPT
+                    default_pass_scheme = SHA256
+
+                    #Set the password query to point to the users table:
+                    password_query = SELECT id AS user, crypt AS password, \
+                            CONCAT(home,'/',maildir) AS userdb_home, \
+                            uid AS userdb_uid, gid AS userdb_gid, \
+                            CONCAT(home,'/',maildir) AS userdb_mail FROM \
+                            users WHERE id='%u'
+                  - RDSHost:
+                      Fn::ImportValue:
+                        !Sub '${DatabaseStackName}-MasterDBEndpoint'
+              mode: "000640"
+              owner: "virtual"
+              group: "dovecot"
+            /tmp/auth-sql.awk:
+              content:
+                !Sub |
+                    /userdb[[:blank:]]{/,/}/ {
+                        if (!comment) {
+                                sub("#", "")
+                                print
+                                if ($0 ~ /}/) comment=1
+                        } else {
+                                if ($0 ~ /^[[:blank:]]*#/) {
+                                        print
+                                } else {
+                                        print "#" $0
+                                }
+                        }
+                        next
+                    }
+                    { print }
+              mode: "000640"
+              owner: "root"
+              group: "root"
+
           commands:
             01_disable_protocols:
               command: "sed -i 's/^protocols =/#protocols =/' dovecot.conf"
@@ -1407,6 +1497,74 @@ Resources:
                   - "s/#port =.*/port = 0/' 10-master.conf"
               cwd: /etc/dovecot/conf.d
               test: "grep ^service.pop3-login 10-master.conf"
+            15_get_ssl_cert:
+              command: !Join
+                - ''
+                - - "aws --region "
+                  - !Ref AWS::Region
+                  - " --query Certificate --output text acm get-certificate "
+                  - "--certificate "
+                  - !Ref SSLCert
+                  - " > "
+                  - !Ref PrimaryServerName
+                  - ".pem"
+              cwd: /etc/pki/dovecot/certs
+              test: "test -d /etc/pki/dovecot/certs"
+            16_get_ssl_cert_chain:
+              command: !Join
+                - ''
+                - - "aws --region "
+                  - !Ref AWS::Region
+                  - " --query CertificateChain --output text "
+                  - "acm get-certificate --certificate "
+                  - !Ref SSLCert
+                  - " >> "
+                  - !Ref PrimaryServerName
+                  - ".pem"
+              cwd: /etc/pki/dovecot/certs
+              test: "test -d /etc/pki/dovecot/certs"
+            17_no_ssl_key:
+              command: "sed -i 's/^ssl_key =/#ssl_key =/' 10-ssl.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "grep ^ssl_key 10-ssl.conf"
+            18_no_ssl_cert:
+              command: "sed -i 's/^ssl_cert =/#ssl_cert =/' 10-ssl.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "grep ^ssl_cert 10-ssl.conf"
+            19_install_ssl_cert:
+              command: !Join
+                - ''
+                - - "sed -i '0,/^#ssl_cert =.*/"
+                  - "s;^ssl_cert =.*;ssl_cert = </etc/pki/dovecot/certs/"
+                  - !Ref PrimaryServerName
+                  - ".pem \\\n&;' 10-logging.conf"
+              cwd: /etc/dovecot/conf.d
+              test: !Join
+                - ''
+                - - "test -f "
+                  - "/etc/pki/dovecot/certs/"
+                  - !Ref PrimaryServerName
+                  - ".pem"
+            20_max_connections:
+              command: !Join
+                - ''
+                - - "sed -i 's/#mail_max_userip_connections =.*/"
+                  - "mail_max_userip_connections = "
+                  - !Ref MaxUserConnections
+                  - "/' 20-imap.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "grep .*#mail_max_userip_connections 20-imap.conf"
+            21_switch_sql_for_prefetch:
+              command: !Join
+                - ''
+                - - awk -f /tmp/auth-sql.awk auth-sql.conf.ext
+                  - " > /tmp/prefetch.ext"
+              cwd: /etc/dovecot/conf.d
+              test: "test -f /tmp/auth-sql.awk"
+            22_install_sql_conf:
+              command: mv /tmp/prefetch.ext auth-sql.conf.ext
+              cwd: /etc/dovecot/conf.d
+              test: "test -f /tmp/prefetch.ext"
 
 #        start_mailserver:
 #          services:
