@@ -2,7 +2,7 @@
 AWSTemplateFormatVersion: 2010-09-09
 
 Description: 'Mirovoy Reference Architecture - Launch RDS
-    This template creates a MySQL database, and a read-replica copy
+    This template creates a MySQL database, and optionally a read-replica copy
     in an alternative availability zone.'
 
 Metadata:
@@ -33,6 +33,7 @@ Metadata:
           - DatabaseEncrpytedBoolean
           - DatabaseCmk
           - DatabaseSecurityGroup
+          - CreateReplica
           - NumberOfSubnets
           - Subnet
     ParameterLabels:
@@ -50,6 +51,8 @@ Metadata:
         default: Snapshot to restore from
       DatabaseSecurityGroup:
         default: DB Security Group
+      CreateReplica:
+        default: Create Replica
       NumberOfSubnets:
         default: Number of subnets
       Subnet:
@@ -92,17 +95,17 @@ Parameters:
     Type: String
   DatabaseMasterUsername:
     AllowedPattern: ^([a-zA-Z0-9]*)$
-    Description: The Amazon RDS master username.
+    Description: The "root" user to configure for the Amazon RDS database.
     ConstraintDescription: "Must contain only alphanumeric characters
       (minimum 8; maximum 16)."
-    MaxLength: 16
-    MinLength: 8
+    MaxLength: 32
+    MinLength: 1
     Type: String
   DatabaseMasterPassword:
     AllowedPattern: ^([a-z0-9A-Z`~!#$%^&*()_+,\\-])*$
     ConstraintDescription: "Must be letters (upper or lower), numbers, and
       these special characters '_'`~!#$%^&*()_+,-"
-    Description: The Amazon RDS master password.
+    Description: The Amazon RDS "root" user password
     MaxLength: 41
     MinLength: 8
     NoEcho: true
@@ -113,9 +116,16 @@ Parameters:
   DatabaseSecurityGroup:
     Description: Select the database security group.
     Type: AWS::EC2::SecurityGroup::Id
+  CreateReplica:
+    AllowedValues:
+      - true
+      - false
+    Default: true
+    Description: "Whether or not to create a read-replica instance of the 
+      database."
+    Type: String
   NumberOfSubnets:
     AllowedValues:
-      - 1
       - 2
       - 3
     Default: 2
@@ -147,6 +157,8 @@ Conditions:
     !Equals ['', !Ref DatabaseCmk]
   NoSnapshot:
     !Equals ['', !Ref DatabaseRestoreSnapshot]
+  ReplicaOn:
+    !Equals [true, !Ref CreateReplica]
 
 Resources:
   MasterDB:
@@ -179,6 +191,7 @@ Resources:
 
   ReadReplicaDB:
     Type: AWS::RDS::DBInstance
+    Condition: ReplicaOn
     Properties:
       DBInstanceClass: !Ref DatabaseInstanceType
       SourceDBInstanceIdentifier: !Ref MasterDB
@@ -215,6 +228,7 @@ Outputs:
   DatabaseInstance0:
     Value: !Ref MasterDB
   DatabaseInstance1:
+    Condition: ReplicaOn
     Value: !Ref ReadReplicaDB
   DataSubnetGroup:
     Value: !Ref DataSubnetGroup
@@ -223,6 +237,7 @@ Outputs:
     Export:
       Name: !Sub "${AWS::StackName}-MasterDBEndpoint"
   ReadReplicaEndpointAddress:
+    Condition: ReplicaOn
     Value: !GetAtt ReadReplicaDB.Endpoint.Address
     Export:
       Name: !Sub "${AWS::StackName}-ReplicaDBEndpoint"
