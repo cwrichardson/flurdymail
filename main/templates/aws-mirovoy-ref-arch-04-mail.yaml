@@ -77,20 +77,34 @@ Metadata:
       - Label:
           default: Dovecot Parameters
         Parameters:
-          - SSLCert
           - MaxUserConnections
+      - Label:
+          default: SSL Parameters
+        Parameters:
+          - CertSource
+          - DNSZone
+          - AltDomainList
+          - CertFileDir
 
     ParameterLabels:
       AdminUser:
         default: Alternative superuser account to create
       AdminPubKey:
         default: SSH public key for the AdminUser
+      AltDomainList:
+        default: Other authorized domains / hosts
       Banner:
         default: SMTPD banner message
+      CertFileDir:
+        default: S3 Directory for SSL certificate files
+      CertSource:
+        default: Source for SSL certificate(s)
       DatabaseStackName:
         default: Name for the stack that created the RDS instances
       DelayWarningTime:
         default: Wait before warning sender
+      DNSZone:
+        default: DNS Zone for SSL cert verification
       EC2KeyName:
         default: Existing Key Pair
       ExternalTestEmail:
@@ -141,8 +155,6 @@ Metadata:
         default: S3 Directory for /etc/skel files
       SoftErrLimit:
         default: How many errors before backoff
-      SSLCert:
-        default: ARN for the Amazon Certificate Manager cert
       StorageStackName:
         default: Name for the stack that created the EBS volumes
       PrimarySubnet:
@@ -180,21 +192,59 @@ Parameters:
       admin user (ec2-user). Probably just cut and paste the contents
       of your id_rsa.pub file for the user.'
     Type: String
+  AltDomainList:
+    Description: 'A comma separated list of domains and hosts to be validated
+      for inclusion in the SSL certificate. If left blank, the certificate
+      will cover your primary domain and your primary server (e.g.,
+      example.com and mail.example.com). If you include other information
+      here, you must also include your primary server. So, if you want the
+      cert to cover both this mail server and your web server, you could put
+      "mail.example.com,www.example.com".'
+    Type: String
   Banner:
     Default: "$myhostname ESMTP $mail_name"
     Description: What to display when someone connects for SMTP.
       It should be enough to be useful, but not give away unnecessary
       information to potential hackers.
     Type: String
+  CertFileDir:
+    Default: ""
+    Description: "Path under S3 prefix from which to grab SSL certs.
+      Should end in a slash."
+    Type: String
+  CertSource:
+    AllowedValues:
+      - generate test
+      - generate real
+      - S3
+      - none
+    Default: generate test
+    Description: Where to get the SSL certificates. By default, certificates
+      will be obtained from the LetsEncrypt staging server (fake certs,
+      untrusted in the wild). Set to "generate real" to generate real
+      LetsEncrypt certs. Set to "S3" to download certificates from the
+      certificate file directory specified under you S3 bucket/prefix.
+      Set to "none" to manually install your certificates later.
+    Type: String
   DelayWarningTime:
     Default: 4h
-    Description: 'How long does mail remain undelivered before sending a
-      warning update to the sender?'
+    Description: "How long does mail remain undelivered before sending a
+      warning update to the sender?"
     Type: String
+  DNSZone:
+    Description: 'The Route53 Hosted Zone that includes the mail server. This
+      will be used for automatic authorization during the creation process for
+      the LetsEncrypt SSL certificate, so it should match the domain of the
+      primary mail server. For example, if you put "mx1.mail.example.com" as
+      the name of the primary server, then this should be the Hosted Zone ID
+      for the "mail.example.com" zone.'
+    Type: List<AWS::Route53::HostedZone::Id>
   PrimaryServerName:
     AllowedPattern: ^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$
     Default: 'mail.example.com'
-    Description: 'The fully qualified domain name for the primary mail server.'
+    Description: 'The fully qualified domain name for the primary mail server.
+      In addition to being put into /etc/mailname, this will also be used for
+      the creation of a LetsEncrypt certificate.'
     Type: String
   VirtualUID:
     Default: 5000
@@ -371,12 +421,6 @@ Parameters:
     Description: "Path under S3 prefix for Banner text to put in the
       alternate admin user's home dir, via /etc/skel/. Should end in a slash."
     Type: String
-  SSLCert:
-    AllowedPattern: (^arn:aws:acm:.*:certificate/[a-f0-9\\-]*$)|(^$)
-    ConstraintDescription: Must be a valid AWS certificate arn.
-    Default: ''
-    Description: ARN of the certificate to be installed for dovecot SSL
-    Type: String
   RecipientLimit:
     Default: 50
     Description: smtpd_recipient_limit The maximal number of
@@ -448,14 +492,20 @@ Parameters:
 
 Conditions:
 
-  NoAdminUser:
-    !Equals [!Ref AdminUser, 'none']
-  SwapOn:
-    !Equals [!Ref UseSwap, true]
   DefaultBanner:
     !Equals [!Ref Banner, '$myhostname ESMTP $mail_name']
   DomainOrigin:
     !Equals [!Ref Origin, 'domain']
+  DownloadCerts:
+    !Equals [!Ref CertSource, 'S3']
+  GetSSLTest:
+    !Equals [!Ref CertSource, 'generate test']
+  GetSSLReal:
+    !Equals [!Ref CertSource, 'generate real']
+  NoAdminUser:
+    !Equals [!Ref AdminUser, 'none']
+  SwapOn:
+    !Equals [!Ref UseSwap, true]
   UseTestData:
     !Equals [!Ref InsertTestData, true]
 
@@ -500,14 +550,24 @@ Resources:
           -
             Effect: Allow
             Action:
-              - ec2:AssociateAddress
-              - ec2:DescribeAddress
+              - route53:ListHostedZones
+              - route53:GetChange
             Resource: "*"
           -
             Effect: Allow
             Action:
-              - acm:GetCertificate
-            Resource: !Ref SSLCert
+              - route53:ChangeResourceRecordSets
+              - route53:GetHostedZone
+            Resource:
+              !Sub
+              - "arn:aws:route53:::hostedzone/${MyZone}"
+              - {MyZone: !Select [0, !Ref DNSZone]}
+          -
+            Effect: Allow
+            Action:
+              - ec2:AssociateAddress
+              - ec2:DescribeAddress
+            Resource: "*"
           -
             Effect: Allow
             Action:
@@ -548,6 +608,7 @@ Resources:
             - mount_spool
             - add_mysql
             - config_mysql
+            - get_getssl
             - install_mailserver
             - config_postfix
             - config_dovecot
@@ -1028,6 +1089,48 @@ Resources:
                       '${DatabaseStackName}-MasterDBEndpoint'
                   - " >/dev/null 2>&1 </dev/null)"
 
+        # we need EPEL to get the certbot scripts for LetsEncrypt SSL certs
+        get_getssl:
+          sources:
+            /tmp/getssl: https://github.com/srvrco/getssl/tarball/master
+          commands:
+            01_install_epel:
+              command: yum install -y epel-release
+              test: "yum repolist enabled | grep epel"
+            02_install_pip:
+              command: yum install -y python3-pip
+              test: ! which pip3 &> /dev/null
+            03_install_boto3:
+              command: /usr/local/bin/pip3 install boto3 &> /dev/null
+              test: test -f /usr/local/bin/pip3 &> /dev/null
+            03_install_dnspython:
+              command: /usr/local/bin/pip3 install dnspython &> /dev/null
+              test: test -f /usr/local/bin/pip3 &> /dev/null
+            04_install_getssl:
+              command: make install
+              cwd: /tmp/getssl
+              test: test -f Makefile
+            05_install_dns_add:
+              command: ln -s /usr/share/getssl/dns_scripts/dns_route53.py \
+                dns_add_route53
+              cwd: /usr/local/bin
+              test: test -f /usr/share/getssl/dns_scripts/dns_route53.py
+            06_install_dns_del:
+              command: ln -s /usr/share/getssl/dns_scripts/dns_route53.py \
+                dns_del_route53
+              cwd: /usr/local/bin
+              test: test -f /usr/share/getssl/dns_scripts/dns_route53.py
+            07_get_domain_name:
+              command: !Join
+                - ' '
+                - - "aws route53 get-hosted-zone --id"
+                  - !Select [0, !Ref DNSZone]
+                  - '| grep \"Name\" | cut -f2 -d: | cut -f2 -d\" | rev |'
+                  - 'cut -f2- -d\. | rev > secdomain'
+              cwd: /tmp
+            08_create_config:
+              command: getssl -c -w /etc/getssl `cat /tmp/secdomain`
+
         install_mailserver:
           packages:
             yum:
@@ -1497,32 +1600,7 @@ Resources:
                   - "s/#port =.*/port = 0/' 10-master.conf"
               cwd: /etc/dovecot/conf.d
               test: "grep ^service.pop3-login 10-master.conf"
-            15_get_ssl_cert:
-              command: !Join
-                - ''
-                - - "aws --region "
-                  - !Ref AWS::Region
-                  - " --query Certificate --output text acm get-certificate "
-                  - "--certificate "
-                  - !Ref SSLCert
-                  - " > "
-                  - !Ref PrimaryServerName
-                  - ".pem"
-              cwd: /etc/pki/dovecot/certs
-              test: "test -d /etc/pki/dovecot/certs"
-            16_get_ssl_cert_chain:
-              command: !Join
-                - ''
-                - - "aws --region "
-                  - !Ref AWS::Region
-                  - " --query CertificateChain --output text "
-                  - "acm get-certificate --certificate "
-                  - !Ref SSLCert
-                  - " >> "
-                  - !Ref PrimaryServerName
-                  - ".pem"
-              cwd: /etc/pki/dovecot/certs
-              test: "test -d /etc/pki/dovecot/certs"
+            # XXX put SSL commands here
             17_no_ssl_key:
               command: "sed -i 's/^ssl_key =/#ssl_key =/' 10-ssl.conf"
               cwd: /etc/dovecot/conf.d
