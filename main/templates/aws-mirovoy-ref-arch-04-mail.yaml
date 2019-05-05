@@ -1094,30 +1094,39 @@ Resources:
           sources:
             /tmp/getssl: https://github.com/srvrco/getssl/tarball/master
           commands:
+            00_make_epel_available:
+              command: amazon-linux-extras enable epel
+              test: "! yum repolist enabled | grep epel"
+	    # I have no idea what this does, but after enabling epel in 
+	    # Amazon Linux Extras, it's the recommended way to actually
+	    # install epel
+            001_clean_yum_metadata:
+              command: yum clean metadata
+              test: "yum repolist enabled | grep amzn2extra-epel"
             01_install_epel:
               command: yum install -y epel-release
-              test: "yum repolist enabled | grep epel"
+              test: "! yum repolist enabled | grep ^\*epel"
             02_install_pip:
               command: yum install -y python3-pip
               test: ! which pip3 &> /dev/null
             03_install_boto3:
-              command: /usr/local/bin/pip3 install boto3 &> /dev/null
-              test: test -f /usr/local/bin/pip3 &> /dev/null
+              command: pip3 install boto3 &> /dev/null
+              test: which pip3 &> /dev/null
             03_install_dnspython:
-              command: /usr/local/bin/pip3 install dnspython &> /dev/null
-              test: test -f /usr/local/bin/pip3 &> /dev/null
+              command: pip3 install dnspython &> /dev/null
+              test: which pip3 &> /dev/null
             04_install_getssl:
               command: make install
               cwd: /tmp/getssl
               test: test -f Makefile
             05_install_dns_add:
-              command: ln -s /usr/share/getssl/dns_scripts/dns_route53.py \
-                dns_add_route53
+              command: "ln -s /usr/share/getssl/dns_scripts/dns_route53.py \
+                dns_add_route53"
               cwd: /usr/local/bin
               test: test -f /usr/share/getssl/dns_scripts/dns_route53.py
             06_install_dns_del:
-              command: ln -s /usr/share/getssl/dns_scripts/dns_route53.py \
-                dns_del_route53
+              command: "ln -s /usr/share/getssl/dns_scripts/dns_route53.py \
+                dns_del_route53"
               cwd: /usr/local/bin
               test: test -f /usr/share/getssl/dns_scripts/dns_route53.py
             07_get_domain_name:
