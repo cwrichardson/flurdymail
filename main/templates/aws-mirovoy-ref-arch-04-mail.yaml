@@ -26,7 +26,7 @@ Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
-          default: Mail Instance Parameters
+          default: Mail EC2 Instance Parameters
         Parameters:
           - AdminUser
           - AdminPubKey
@@ -47,10 +47,6 @@ Metadata:
           - MailDBName
           - MailDBUser
           - MailDBPassword
-          - InsertTestData
-          - XandrosPass
-          - VivitaPass
-          - ExternalTestEmail
       - Label:
           default: AWS S3 Configuration
         Parameters:
@@ -58,7 +54,7 @@ Metadata:
           - MYS3KeyPrefix
           - SkelFileDir
       - Label:
-          default: Postfix Parameters
+          default: Postfix Primary Parameters
         Parameters:
           - Origin
           - Banner
@@ -66,6 +62,28 @@ Metadata:
           - UnknownLocalErrorCode
           - RootMailRecipient
           - InetProtocols
+      - Label:
+          default: SSL Parameters
+        Parameters:
+          - CertSource
+          - AccountEmail
+          - DNSZone
+          - AltDomainList
+          - CertFileDir
+      - Label:
+          default: Dovecot Parameters
+        Parameters:
+          - MaxUserConnections
+      - Label:
+          default: Testing Configuration
+        Parameters:
+          - InsertTestData
+          - XandrosPass
+          - VivitaPass
+          - ExternalTestEmail
+      - Label:
+          default: Postfix Optional Parameters
+        Parameters:
           - DelayWarningTime
           - MaxQueueLifetime
           - MinBackoffTime
@@ -74,19 +92,10 @@ Metadata:
           - RecipientLimit
           - SoftErrLimit
           - HardErrLimit
-      - Label:
-          default: Dovecot Parameters
-        Parameters:
-          - MaxUserConnections
-      - Label:
-          default: SSL Parameters
-        Parameters:
-          - CertSource
-          - DNSZone
-          - AltDomainList
-          - CertFileDir
 
     ParameterLabels:
+      AccountEmail:
+        default: Email for letsencrypt
       AdminUser:
         default: Alternative superuser account to create
       AdminPubKey:
@@ -174,6 +183,13 @@ Metadata:
 
 Parameters:
 
+  AccountEmail:
+    AllowedPattern: "^.+@.+\\..+|^$"
+    ConstraintDescription: "Must be a valid email address"
+    Default: ''
+    Description: 'The email address for submitting to LetsEncrypt. Generally
+      set at account level rather than domain.'
+    Type: String
   AdminUser:
     AllowedPattern: "^[a-z][-a-z0-9]*$"
     ConstraintDescription: "Must be a valid username for the OS to
@@ -504,6 +520,8 @@ Conditions:
     !Equals [!Ref CertSource, 'generate real']
   NoAdminUser:
     !Equals [!Ref AdminUser, 'none']
+  SetAccountEmail:
+    !Not [!Equals [!Ref AccountEmail, '']]
   SwapOn:
     !Equals [!Ref UseSwap, true]
   UseTestData:
@@ -1094,51 +1112,163 @@ Resources:
           sources:
             /tmp/getssl: https://github.com/srvrco/getssl/tarball/master
           commands:
-            00_make_epel_available:
+            01_make_epel_available:
               command: amazon-linux-extras enable epel
               test: "! yum repolist enabled | grep epel"
-	    # I have no idea what this does, but after enabling epel in 
-	    # Amazon Linux Extras, it's the recommended way to actually
-	    # install epel
-            001_clean_yum_metadata:
+            # I have no idea what this does, but after enabling epel in
+            # Amazon Linux Extras, it's the recommended way to actually
+            # install epel
+            02_clean_yum_metadata:
               command: yum clean metadata
               test: "yum repolist enabled | grep amzn2extra-epel"
-            01_install_epel:
+            03_install_epel:
               command: yum install -y epel-release
-              test: "! yum repolist enabled | grep ^\*epel"
-            02_install_pip:
+              test: "! yum repolist enabled | grep ^\\*epel"
+            04_install_pip:
               command: yum install -y python3-pip
-              test: ! which pip3 &> /dev/null
-            03_install_boto3:
-              command: pip3 install boto3 &> /dev/null
-              test: which pip3 &> /dev/null
-            03_install_dnspython:
-              command: pip3 install dnspython &> /dev/null
-              test: which pip3 &> /dev/null
-            04_install_getssl:
+              test: "! which pip3 > /dev/null 2>&1"
+            05_install_boto3:
+              command: pip3 install boto3 > /dev/null 2>&1
+              test: which pip3 > /dev/null 2>&1
+            06_install_dnspython:
+              command: pip3 install dnspython > /dev/null 2>&1
+              test: which pip3 > /dev/null 2>&1
+            07_install_getssl:
               command: make install
               cwd: /tmp/getssl
               test: test -f Makefile
-            05_install_dns_add:
+            08_install_dns_add:
               command: "ln -s /usr/share/getssl/dns_scripts/dns_route53.py \
                 dns_add_route53"
               cwd: /usr/local/bin
               test: test -f /usr/share/getssl/dns_scripts/dns_route53.py
-            06_install_dns_del:
+            09_install_dns_del:
               command: "ln -s /usr/share/getssl/dns_scripts/dns_route53.py \
                 dns_del_route53"
               cwd: /usr/local/bin
               test: test -f /usr/share/getssl/dns_scripts/dns_route53.py
-            07_get_domain_name:
+            10_create_config:
               command: !Join
                 - ' '
-                - - "aws route53 get-hosted-zone --id"
-                  - !Select [0, !Ref DNSZone]
-                  - '| grep \"Name\" | cut -f2 -d: | cut -f2 -d\" | rev |'
-                  - 'cut -f2- -d\. | rev > secdomain'
-              cwd: /tmp
-            08_create_config:
-              command: getssl -c -w /etc/getssl `cat /tmp/secdomain`
+                - - getssl -c -w /etc/getssl
+                  - !Ref PrimaryServerName
+            11_set_account_email:
+              command:
+                Fn::If:
+                  - SetAccountEmail
+                  - !Join
+                    - ''
+                    - - "sed -i 's/^#ACCOUNT_EMAIL.*/ACCOUNT_EMAIL=\""
+                      - !Ref AccountEmail
+                      - "\"/' getssl.cfg"
+                  - echo "No account email to set."
+              cwd: /etc/getssl
+            12_set_server_type:
+              command: !Join
+                - ''
+                - - sed -i 's/SERVER_TYPE="https"/SERVER_TYPE="imaps"/'
+                  - " getssl.cfg"
+              cwd: /etc/getssl
+            13_no_check_remote:
+              command: !Join
+                - ''
+                - - sed -i 's/CHECK_REMOTE="true"/CHECK_REMOTE="false"/'
+                  - " getssl.cfg"
+              cwd: /etc/getssl
+            14_validate_via_dns:
+              command: !Join
+                - ''
+                - - sed -i 's/^#VALIDATE_VIA_DNS/VALIDATE_VIA_DNS/'
+                  - " getssl.cfg"
+              cwd: /etc/getssl
+            15_set_dns_add:
+              command: !Join
+                - ''
+                - - "sed -i 's;^#DNS_ADD_COMMAND.*;DNS_ADD_COMMAND="
+                  - "\"/usr/local/bin/dns_add_route53\";' getssl.cfg"
+              cwd: /etc/getssl
+              test: "! grep ^DNS_ADD_COMMAND getssl.cfg"
+            16_set_dns_del:
+              command: !Join
+                - ''
+                - - "sed -i 's;^#DNS_DEL_COMMAND.*;DNS_DEL_COMMAND="
+                  - "\"/usr/local/bin/dns_del_route53\";' getssl.cfg"
+              cwd: /etc/getssl
+              test: "! grep ^DNS_DEL_COMMAND getssl.cfg"
+            17_set_SANS:
+              command: !Join
+                - ''
+                - - "sed -i 's/^SANS=.*/SANS=\""
+                  - !Ref AltDomainList
+                  - "\"/' getssl.cfg"
+              cwd: !Join
+                - ''
+                - - /etc/getssl/
+                  - !Ref PrimaryServerName
+              test: "grep ^SANS getssl.cfg"
+            18_cert_location:
+              command: !Join
+                - ''
+                - - "sed -i 's;^#DOMAIN_CERT_LOCATION=\"/etc/ssl/;"
+                  - "DOMAIN_CERT_LOCATION=\"/etc/pki/dovecot/certs/;' "
+                  - "getssl.cfg"
+              cwd: !Join
+                - ''
+                - - /etc/getssl/
+                  - !Ref PrimaryServerName
+              test: "grep ^#DOMAIN_CERT getssl.cfg"
+            19_key_location:
+              command: !Join
+                - ''
+                - - "sed -i 's;^#DOMAIN_KEY_LOCATION=\"/etc/ssl/;"
+                  - "DOMAIN_KEY_LOCATION=\"/etc/pki/dovecot/private/;' "
+                  - "getssl.cfg"
+              cwd: !Join
+                - ''
+                - - /etc/getssl/
+                  - !Ref PrimaryServerName
+              test: "grep ^#DOMAIN_KEY getssl.cfg"
+            #20_pem_location:
+              #command: !Join
+                #- ''
+                #- - "sed -i 's;^#DOMAIN_PEM_LOCATION=\"\";"
+                  #- "DOMAIN_PEM_LOCATION=\"/etc/pki/dovecot/private/"
+                  #- !Ref PrimaryServerName
+                  #- ".pem\";' "
+                  #- "getssl.cfg"
+              #cwd: !Join
+                #- ''
+                #- - /etc/getssl/
+                  #- !Ref PrimaryServerName
+              #test: "grep ^#DOMAIN_PEM getssl.cfg"
+            #20_reload_command:
+              #command: !Join
+                #- ''
+                #- - "sed -i 's/^#RELOAD_CMD=\""
+                  #- "DOMAIN_KEY_LOCATION=\"/etc/ssl/certs;' getssl.cfg"
+              #cwd: !Join
+                #- ''
+                #- - /etc/getssl/
+                  #- !Ref PrimaryServerName
+              #test: "grep ^#DOMAIN_KEY getssl.cfg"
+            21_config_wait_for_dns:
+              command: "echo CHECK_ALL_AUTH_DNS=\"true\" >> getssl.cfg"
+              cwd: !Join
+                - ''
+                - - /etc/getssl/
+                  - !Ref PrimaryServerName
+              test: "! grep ^CEHCK_ALL_AUTH_DNS getssl.cfg"
+            #
+            # for some reason, getssl can't find boto3 without this. I
+            # suspect that means that pip isn't doing the right thing for
+            # the boto3 install, but what do I know?
+            #
+            22_get_ssl_cert:
+              command: !Join
+                - ''
+                - - "PYTHONPATH=/usr/local/lib/python3.7/site-packages/; "
+                  - "export PYTHONPATH && /usr/bin/getssl -d -w /etc/getssl "
+                  - !Ref PrimaryServerName
 
         install_mailserver:
           packages:
@@ -1273,15 +1403,39 @@ Resources:
                       warn_if_reject reject_non_fqdn_sender,
                       reject_unknown_sender_domain, reject_unauth_pipelining,
                       permit
+                  # smtpd_sender_restrictions = permit_sasl_authenticated,
+                      # permit_mynetworks, warn_if_reject reject_non_fqdn_sender,
+                      # reject_unknown_sender_domain, reject_unauth_pipelining,
+                      # permit
                   smtpd_client_restrictions = reject_rbl_client
                       sbl.spamhaus.org, reject_rbl_client blackholes.easynet.nl
                   smtpd_recipient_restrictions = reject_unauth_pipelining,
-                      permit_mynetworks, reject_non_fqdn_recipient,
+                      permit_mynetworks, 
+                      reject_non_fqdn_recipient,
                       reject_unknown_recipient_domain,
                       reject_unauth_destination, permit
+                  # smtpd_recipient_restrictions = reject_unauth_pipelining,
+                      # permit_mynetworks, permit_sasl_authenticated,
+                      # reject_non_fqdn_recipient,
+                      # reject_unknown_recipient_domain,
+                      # reject_unauth_destination, permit
                   smtpd_data_restrictions = reject_unauth_pipelining
-                  smtpd_helo_required = yes
                   smtpd_delay_reject = yes
+                  smtpd_helo_required = yes
+                  smtpd_sasl_type = dovecot
+                  smtpd_sasl_path = private/auth
+                  smtpd_sasl_auth_enable = yes
+                  smtpd_sasl_security_options = noanonymous
+                  # smtpd_sasl_security_options = noanonymous, noplaintext
+                  # smtpd_sasl_tls_security_options = noanonymous
+                  # smtpd_sasl_local_domain =
+                  # smtpd_tls_chain_files =
+                      # /etc/pki/dovecot/private/${PrimaryServerName}.pem
+                  # smtpd_tls_loglevel = 1
+                  # smtpd_tls_mandatory_ciphers = high
+                  # smtpd_tls_mandatory_exclude_ciphers = aNULL, MD5
+                  # smtpd_tls_mandatory_protocols = !SSLv2, !SSLv3
+                  # smtpd_tls_security_level = may
                   disable_vrfy_command = yes
                   virtual_mailbox_base = /var/spool/mail/virtual
                   virtual_mailbox_maps = mysql:/etc/postfix/mysql_mailbox.cf
@@ -1609,29 +1763,52 @@ Resources:
                   - "s/#port =.*/port = 0/' 10-master.conf"
               cwd: /etc/dovecot/conf.d
               test: "grep ^service.pop3-login 10-master.conf"
-            # XXX put SSL commands here
+            15_use_dovecot_socket:
+              command: |
+                sed -i '/^service auth {/a\
+                unix_listener /var/spool/postfix/private/auth {\
+                  mode = 0660\
+                  user = postfix\
+                  group = postfix\
+                }' 10-master.conf
+              cwd: /etc/dovecot/conf.d
+              test: "grep ^service.auth 10-master.conf"
+            16_no_ssl_cert:
+              command: "sed -i 's/^ssl_cert =/#ssl_cert =/' 10-ssl.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "grep ^ssl_cert 10-ssl.conf"
             17_no_ssl_key:
               command: "sed -i 's/^ssl_key =/#ssl_key =/' 10-ssl.conf"
               cwd: /etc/dovecot/conf.d
               test: "grep ^ssl_key 10-ssl.conf"
-            18_no_ssl_cert:
-              command: "sed -i 's/^ssl_cert =/#ssl_cert =/' 10-ssl.conf"
-              cwd: /etc/dovecot/conf.d
-              test: "grep ^ssl_cert 10-ssl.conf"
-            19_install_ssl_cert:
+            18_install_ssl_cert:
               command: !Join
                 - ''
-                - - "sed -i '0,/^#ssl_cert =.*/"
-                  - "s;^ssl_cert =.*;ssl_cert = </etc/pki/dovecot/certs/"
+                - - "sed -i '/^#ssl_key =.*/a "
+                  - "ssl_cert = </etc/pki/dovecot/certs/"
                   - !Ref PrimaryServerName
-                  - ".pem \\\n&;' 10-logging.conf"
+                  - ".crt' 10-ssl.conf"
               cwd: /etc/dovecot/conf.d
               test: !Join
                 - ''
                 - - "test -f "
                   - "/etc/pki/dovecot/certs/"
                   - !Ref PrimaryServerName
-                  - ".pem"
+                  - ".crt"
+            19_install_ssl_key:
+              command: !Join
+                - ''
+                - - "sed -i '/^ssl_cert =.*/a "
+                  - "ssl_key = </etc/pki/dovecot/private/"
+                  - !Ref PrimaryServerName
+                  - ".key' 10-ssl.conf"
+              cwd: /etc/dovecot/conf.d
+              test: !Join
+                - ''
+                - - "test -f "
+                  - "/etc/pki/dovecot/private/"
+                  - !Ref PrimaryServerName
+                  - ".key"
             20_max_connections:
               command: !Join
                 - ''
