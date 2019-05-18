@@ -215,19 +215,6 @@ Resources:
           Value: Private
       VpcId: !Ref Vpc
 
-  DataSubnetRouteTableAssociation1:
-    Condition: AZ1
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref NatRouteTable1
-      SubnetId: !Ref DataSubnet1
-  DataSubnetRouteTableAssociation2:
-    Condition: AZ2
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref NatRouteTable2
-      SubnetId: !Ref DataSubnet2
-
   InternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
@@ -238,66 +225,6 @@ Resources:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
       InternetGatewayId: !Ref InternetGateway
-      VpcId: !Ref Vpc
-
-  NatEIP1:
-    Condition: AZ1
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: vpc
-  NatGateway1:
-    Condition: AZ1
-    Type: AWS::EC2::NatGateway
-    DependsOn: AttachInternetGateway
-    Properties:
-      AllocationId: !GetAtt NatEIP1.AllocationId
-      SubnetId: !Ref PublicSubnet1
-  NatRoute1:
-    Condition: AZ1
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref NatRouteTable1
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway1
-  NatRouteTable1:
-    Condition: AZ1
-    Type: AWS::EC2::RouteTable
-    Properties:
-      Tags:
-        - Key: Name
-          Value: !Join ['', ['NatRouteTable1 / ', !Ref 'AWS::StackName']]
-        - Key: Network
-          Value: Public
-      VpcId: !Ref Vpc
-
-  NatEIP2:
-    Condition: AZ2
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: vpc
-  NatGateway2:
-    Condition: AZ2
-    Type: AWS::EC2::NatGateway
-    DependsOn: AttachInternetGateway
-    Properties:
-      AllocationId: !GetAtt NatEIP2.AllocationId
-      SubnetId: !Ref PublicSubnet2
-  NatRoute2:
-    Condition: AZ2
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref NatRouteTable2
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway2
-  NatRouteTable2:
-    Condition: AZ2
-    Type: AWS::EC2::RouteTable
-    Properties:
-      Tags:
-        - Key: Name
-          Value: !Join ['', ['NatRouteTable2 / ', !Ref 'AWS::StackName']]
-        - Key: Network
-          Value: Public
       VpcId: !Ref Vpc
 
   PublicRoute:
