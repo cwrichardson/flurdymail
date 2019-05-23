@@ -311,8 +311,8 @@ Resources:
               authenticaiton: S3AccessCreds
             /etc/ssh/ssh_banner:
               source: !Join
-                - - ''
-                  - !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}"
+                - ''
+                - - !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}"
                   - !Sub ".amazonaws.com/${MYS3KeyPrefix}${BastionBanner}"
               mode: "000640"
               owner: "root"
@@ -320,8 +320,8 @@ Resources:
               authentication: S3AccessCreds
             /tmp/profile:
               source: !Join
-                - - ''
-                  - !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}"
+                - ''
+                - - !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}"
                   - !Sub ".amazonaws.com/${MYS3KeyPrefix}${SkelFileDir}profile"
               mode: "000600"
               owner: "root"
@@ -329,8 +329,8 @@ Resources:
               authentication: S3AccessCreds
             /tmp/shrc:
               source: !Join
-                - - ''
-                  - !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}"
+                - ''
+                - - !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}"
                   - !Sub ".amazonaws.com/${MYS3KeyPrefix}${SkelFileDir}shrc"
               mode: "000600"
               owner: "root"
@@ -362,7 +362,7 @@ Resources:
       SecurityGroups:
         - !Ref BastionSecurityGroup
       UserData: !Base64
-        'Fn::Join':
+        Fn::Join:
           - ''
           - - |
               #!/bin/bash -x
