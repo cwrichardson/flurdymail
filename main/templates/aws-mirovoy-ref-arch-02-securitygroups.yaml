@@ -29,23 +29,36 @@ Metadata:
         Parameters:
           - SshAccessCidr
           - Vpc
+          - VpcStackName
+          - NumberOfAZs
       - Label:
           default: Optional security groups to create
         Parameters:
           - CreateMailSecGroup
 
     ParameterLabels:
+      CreateMailSecGroup:
+        default: Create a security group for mail servers
+      NumberOfAZs:
+        default: Number of Availability Zones
       SshAccessCidr:
         default: SSH Access From
       Vpc:
         default: Vpc Id
-      CreateMailSecGroup:
-        default: Create a security group for mail servers
+      VpcStackName:
+        default: VPC Stack Name
 
 Parameters:
-
+  NumberOfAZs:
+    AllowedValues:
+      - 1
+      - 2
+    Default: 2
+    Description: Number of Availability Zones to use in the VPC. This must
+      match your selections in the list of Availability Zones parameter.
+    Type: Number
   SshAccessCidr:
-    AllowedPattern: '^((\d{1,3})\.){3}\d{1,3}/\d{1,3}$'
+    AllowedPattern: '((\d{1,3})\.){3}\d{1,3}/\d{1,2}'
     Description: The CIDR IP range that is permitted to SSH to bastion
       instance. Note - a value of 0.0.0.0/0 will allow access from ANY IP
       address.
@@ -55,6 +68,14 @@ Parameters:
     AllowedPattern: ^(vpc-)([a-z0-9]{8}|[a-z0-9]{17})$
     Description: The Vpc Id of an existing Vpc.
     Type: AWS::EC2::VPC::Id
+  VpcStackName:
+    AllowedPattern: ^([a-zA-Z0-9]+[a-zA-Z0-9\-]*)$
+    ConstraintDescription: "A stack name can contain only alphanumeric
+      characters (case-sensitive) and hyphens. It must start with an
+      alphabetic character and can't be longer than 128 characters."
+    Description: The name of the stack that was used to create the VPC
+    MaxLength: 128
+    Type: String
   CreateMailSecGroup:
     AllowedValues:
       - 'True'
@@ -65,8 +86,12 @@ Parameters:
 
 Conditions:
 
-  WantsMail: !Equals ['True', !Ref CreateMailSecGroup]
-  WantsNothing: !Not [!Equals ['True', !Ref CreateMailSecGroup]]
+  2AZs:
+    !Equals ['2', !Ref NumberOfAZs]
+  WantsMail:
+    !Equals ['True', !Ref CreateMailSecGroup]
+  WantsNothing:
+    !Not [!Equals ['True', !Ref CreateMailSecGroup]]
 
 Resources:
 
@@ -81,6 +106,62 @@ Resources:
           CidrIp: !Ref SshAccessCidr
       VpcId:
         !Ref Vpc
+
+  NatSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for NAT Instances
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+        # Always allow ports 80 and 443, so at a minimum instances can get
+        # security updates (yum uses these ports)
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp:
+            Fn::ImportValue: !Sub '${VpcStackName}:AppSubnet1Cidr'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp:
+            Fn::ImportValue: !Sub '${VpcStackName}:AppSubnet1Cidr'
+      VpcId:
+        !Ref Vpc
+
+  NatSecurityGroupIngress2port80:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: 2AZs
+    Properties:
+      GroupId: !Ref NatSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp:
+        Fn::ImportValue: !Sub '${VpcStackName}:AppSubnet2Cidr'
+
+  NatSecurityGroupIngress2port443:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: 2AZs
+    Properties:
+      GroupId: !Ref NatSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp:
+        Fn::ImportValue: !Sub '${VpcStackName}:AppSubnet2Cidr'
+
+  NatSecurityGroupIngressForMail:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: WantsMail
+    Properties:
+      GroupId: !Ref NatSecurityGroup
+      IpProtocol: tcp
+      FromPort: 25
+      ToPort: 25
+      SourceSecurityGroupId: !Ref MailSecurityGroup
 
   DatabaseSecurityGroupMail:
     Type: AWS::EC2::SecurityGroup
