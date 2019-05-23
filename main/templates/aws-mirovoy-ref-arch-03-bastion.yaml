@@ -4,11 +4,10 @@ AWSTemplateFormatVersion: 2010-09-09
 Description: 'Mirovoy Reference Architecture - Bastion Auto-Scaling Group
     This template creates a bastion auto-scaling group in the Mirovoy
     VPC public subnets. By default the auto-scaling configuration is
-    desired: 0, min: 0, max:1. Cross reference with the security groups 
+    desired: 0, min: 0, max:1. Cross reference with the security groups
     configuraiton which controls access to the bastion hosts.'
 
 Metadata:
-
   Authors:
     Description: Chris Richardson (cwr@mirovoysales.com)
   License:
@@ -26,23 +25,24 @@ Metadata:
 
   AWS::CloudFormation::Interface:
     ParameterGroups:
-    - Label:
-        default: Bastion Configuration
-      Parameters:
-        - AdminUser
-        - AdminPubKey
-        - BastionAMIOS
-        - BastionInstanceType
-        - BastionSecurityGroup
-        - EC2KeyName
-        - LoginFile
-        - NumberOfSubnets
-        - Subnet
-    - Label:
-        default: AWS S3 Configuration
-      Parameters:
-        - MirovoyCFAssetsBucket
-        - MYS3KeyPrefix
+      - Label:
+          default: Bastion Configuration
+        Parameters:
+          - AdminUser
+          - AdminPubKey
+          - BastionAMIOS
+          - BastionInstanceType
+          - BastionSecurityGroup
+          - EC2KeyName
+          - LoginFile
+          - NumberOfSubnets
+          - Subnet
+      - Label:
+          default: AWS S3 Configuration
+        Parameters:
+          - MirovoyCFAssetsBucket
+          - MYS3KeyPrefix
+
     ParameterLabels:
       AdminUser:
         default: Alternative superuser account to create
@@ -68,10 +68,9 @@ Metadata:
         default: Subnets
 
 Parameters:
-
   AdminUser:
     AllowedPattern: "^[a-z][-a-z0-9]*$"
-    ConstraintDescription: "Must be a valid username for the OS to be used. 
+    ConstraintDescription: "Must be a valid username for the OS to be used.
       For sanity's sake, confining this to starting with a lower-case letter,
       followed by an arbitrary number of lower-case letters, numbers, and the
       dash character ('-')."
@@ -85,7 +84,8 @@ Parameters:
     Type: String
   BastionBanner:
     Default: "var/banner_message.txt"
-    Description: 'Path and file under S3 prefix for Banner text to display upon login. Should not start with a "/".'
+    Description: 'Path and file under S3 prefix for Banner text to display
+      upon login. Should not start with a "/".'
     Type: String
   BastionSecurityGroup:
     Description: Select the bastion security group.
@@ -96,106 +96,28 @@ Parameters:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
   BastionInstanceType:
     AllowedValues:
-    - t2.nano 
-    - t2.micro 
-    - t2.small 
-    - t2.medium 
-    - t2.large 
-    - t2.xlarge 
-    - t2.2xlarge 
-    - m3.medium 
-    - m3.large 
-    - m3.xlarge 
-    - m3.2xlarge 
-    - m4.large 
-    - m4.xlarge 
-    - m4.2xlarge 
-    - m4.4xlarge 
-    - m4.10xlarge 
-    - m4.16xlarge 
-    - m5.large 
-    - m5.xlarge 
-    - m5.2xlarge 
-    - m5.4xlarge 
-    - m5.12xlarge 
-    - m5.24xlarge 
-    - c3.large 
-    - c3.xlarge 
-    - c3.2xlarge 
-    - c3.4xlarge 
-    - c3.8xlarge 
-    - c4.large 
-    - c4.xlarge 
-    - c4.2xlarge 
-    - c4.4xlarge 
-    - c4.8xlarge 
-    - c5.large 
-    - c5.xlarge 
-    - c5.2xlarge 
-    - c5.4xlarge 
-    - c5.9xlarge 
-    - c5.18xlarge
-    - r3.large 
-    - r3.xlarge 
-    - r3.2xlarge 
-    - r3.4xlarge 
-    - r3.8xlarge 
-    - r4.large 
-    - r4.xlarge 
-    - r4.2xlarge 
-    - r4.4xlarge 
-    - r4.8xlarge 
-    - r4.16xlarge 
-    - x1.16xlarge 
-    - x1.32xlarge 
-    - x1e.xlarge 
-    - x1e.2xlarge 
-    - x1e.4xlarge 
-    - x1e.8xlarge 
-    - x1e.16xlarge 
-    - x1e.32xlarge
-    - d2.xlarge 
-    - d2.2xlarge 
-    - d2.4xlarge 
-    - d2.8xlarge 
-    - h1.2xlarge 
-    - h1.4xlarge 
-    - h1.8xlarge 
-    - h1.16xlarge 
-    - i2.xlarge 
-    - i2.2xlarge 
-    - i2.4xlarge 
-    - i2.8xlarge 
-    - i3.large 
-    - i3.xlarge 
-    - i3.2xlarge 
-    - i3.4xlarge 
-    - i3.8xlarge 
-    - i3.16xlarge
-    - f1.2xlarge 
-    - f1.16xlarge 
-    - g2.2xlarge 
-    - g2.8xlarge 
-    - g3.4xlarge 
-    - g3.8xlarge 
-    - g3.16xlarge 
-    - p2.xlarge 
-    - p2.8xlarge 
-    - p2.16xlarge 
-    - p3.2xlarge 
-    - p3.8xlarge 
-    - p3.16xlarge
+      - t2.nano
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t3.nano
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - m3.medium
+      - c5.large
     ConstraintDescription: Must be a valid Amazon EC2 instance type.
-    Default: t2.nano
+    Default: t3.nano
     Description: Bastion EC2 instance type.
     Type: String
   EC2KeyName:
-    Description: Name of an EC2 KeyPair. Your bastion instances will launch with this KeyPair.
+    Description: Name of an EC2 KeyPair. Your bastion instances will launch
+      with this KeyPair.
     Type: AWS::EC2::KeyPair::KeyName
   EnableBanner:
     AllowedValues:
-    - "true"
-    - "false"
+      - "true"
+      - "false"
     Default: "false"
     Description: 'To include a banner to be displayed when connecting via SSH
       to the bastion, set this parameter to true.'
@@ -207,39 +129,41 @@ Parameters:
     Type: String
   NumberOfSubnets:
     AllowedValues:
-    - 1
-    - 2
-    Description: Number of subnets. This must match your selections in the list of subnets below.
-    Type: String 
+      - 1
+      - 2
+    Description: Number of subnets. This must match your selections in the
+      list of subnets below.
+    Type: String
   Subnet:
-    Description: Select existing subnets. The number selected must match the number of subnets above. Subnets selected must be in separate AZs.
+    Description: Select existing subnets. The number selected must match the
+      number of subnets above. Subnets selected must be in separate AZs.
     Type: List<AWS::EC2::Subnet::Id>
   MirovoyCFAssetsBucket:
     AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
-    ConstraintDescription: 'Mirovoy CloudFront Assets Bucket name can include 
-      numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot 
+    ConstraintDescription: 'Mirovoy CloudFront Assets Bucket name can include
+      numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot
       start or end with a hyphen (-).'
     Default: "mirovoy-cf-assets"
     Description: 'S3 bucket name for the Mirovoy CloudFormation assets.'
     Type: String
   MYS3KeyPrefix:
     AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
-    ConstraintDescription: 'Mirovoy CloudFront Assets S3 bucket  key prefix 
-      can include numbers, lowercase letters, uppercase letters, hyphens (-), 
+    ConstraintDescription: 'Mirovoy CloudFront Assets S3 bucket  key prefix
+      can include numbers, lowercase letters, uppercase letters, hyphens (-),
       and forward slash (/). The prefix should end with a forward slash (/).'
     Default: "bastion/"
-    Description: 'S3 key prefix for the Mirovoy CloudFormation assets. This 
-      should be the top-level directory path inside the bucket, leading to the 
+    Description: 'S3 key prefix for the Mirovoy CloudFormation assets. This
+      should be the top-level directory path inside the bucket, leading to the
       assets for this template (e.g., scripts directory, etc... are located)'
     Type: String
   AlternativeIAMRole:
-    Description: 'Specify an existing IAM Role name to attach to the bastion. 
+    Description: 'Specify an existing IAM Role name to attach to the bastion.
       If left blank, a new role will be created.'
     Default: ''
     Type: String
   EnvironmentVariables:
-    Description: 'Specify a comma separated list of environment variables for 
-      use in bootstrapping. Variables must be in the format KEY=VALUE. VALUE 
+    Description: 'Specify a comma separated list of environment variables for
+      use in bootstrapping. Variables must be in the format KEY=VALUE. VALUE
       cannot contain commas.'
     Default: ''
     Type: String
@@ -252,22 +176,20 @@ Parameters:
     Type: String
 
 Conditions:
-
   CreateIAMRole:
-      !Equals [ !Ref AlternativeIAMRole, '' ]
+    !Equals [!Ref AlternativeIAMRole, '']
   NumberOfSubnets1:
-      !Equals [ 1, !Ref NumberOfSubnets ]
+    !Equals [1, !Ref NumberOfSubnets]
   NumberOfSubnets2:
-      !Equals [ 2, !Ref NumberOfSubnets ]
+    !Equals [2, !Ref NumberOfSubnets]
   Subnet0: !Or
     - !Condition NumberOfSubnets1
     - !Condition NumberOfSubnets2
   Subnet1: !Condition NumberOfSubnets2
-  UseAlternativeInitialization: !Not [ 
-    !Equals [ !Ref AlternativeInitializationScript, '' ] ]
+  UseAlternativeInitialization: !Not [
+    !Equals [!Ref AlternativeInitializationScript, '']]
 
 Resources:
-
   BastionAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
@@ -279,14 +201,14 @@ Resources:
       MinSize: 0
       Tags:
         - Key: Name
-          Value: !Join [ '', [ 'Bastion / ', !Ref 'AWS::StackName' ] ]
+          Value: !Join ['', ['Bastion / ', !Ref 'AWS::StackName']]
           PropagateAtLaunch: true
       VPCZoneIdentifier:
-        !If
-          [ NumberOfSubnets1,
-            [ !Select [ 0, !Ref Subnet ] ],
-            [ !Select [ 0, !Ref Subnet ], !Select [ 1, !Ref Subnet ] ]
+        !If [NumberOfSubnets1,
+             [!Select [0, !Ref Subnet]],
+             [!Select [0, !Ref Subnet], !Select [1, !Ref Subnet]]
         ]
+
   #
   # Combined what were previously BastionHostRole and BastionInstanceRole
   # because you are only allowed to assign one IAM Role per Instance Profile
@@ -307,18 +229,19 @@ Resources:
             Action:
               - "sts:AssumeRole"
       Policies:
-      - PolicyName: logs
-        PolicyDocument:
-          Version: 2012-10-17
-          Statement:
-          - Effect: Allow
-            Action:
-            - logs:CreateLogGroup
-            - logs:CreateLogStream
-            - logs:PutLogEvents
-            - logs:DescribeLogStreams
-            Resource:
-            - arn:aws:logs:*:*:*
+        - PolicyName: logs
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource:
+                  - arn:aws:logs:*:*:*
+
   BastionHostPolicy:
     Type: AWS::IAM::Policy
     Properties:
@@ -330,7 +253,8 @@ Resources:
             Effect: "Allow"
             Action:
               - "s3:GetObject"
-            Resource: !Sub "arn:aws:s3:::${MirovoyCFAssetsBucket}/${MYS3KeyPrefix}*"
+            Resource:
+              !Sub "arn:aws:s3:::${MirovoyCFAssetsBucket}/${MYS3KeyPrefix}*"
           -
             Effect: "Allow"
             Action:
@@ -338,15 +262,17 @@ Resources:
               - "ec2:DescribeAddress"
             Resource: "*"
       Roles:
-       -
-         !If [ CreateIAMRole, !Ref BastionHostRole, !Ref AlternativeIAMRole ]
+        -
+          !If [CreateIAMRole, !Ref BastionHostRole, !Ref AlternativeIAMRole]
+
   BastionHostProfile:
     DependsOn: BastionHostPolicy
     Type: AWS::IAM::InstanceProfile
     Properties:
       Path: "/"
       Roles:
-        - !If [ CreateIAMRole, !Ref BastionHostRole, !Ref AlternativeIAMRole ]
+        - !If [CreateIAMRole, !Ref BastionHostRole, !Ref AlternativeIAMRole]
+
   BastionLaunchConfiguration:
     Type: AWS::AutoScaling::LaunchConfiguration
     Metadata:
@@ -354,8 +280,8 @@ Resources:
         S3AccessCreds:
           type: "S3"
           roleName: !If [
-            CreateIAMRole, !Ref BastionHostRole, !Ref AlternativeIAMRole ]
-          buckets: [ !Ref MirovoyCFAssetsBucket ]
+            CreateIAMRole, !Ref BastionHostRole, !Ref AlternativeIAMRole]
+          buckets: [!Ref MirovoyCFAssetsBucket]
       AWS::CloudFormation::Init:
         config:
           packages:
@@ -364,33 +290,48 @@ Resources:
           files:
             /tmp/bastion_bootstrap.sh:
               source: !If [
-                UseAlternativeInitialization, 
+                UseAlternativeInitialization,
                 !Ref AlternativeInitializationScript,
                 #
-                # Added AWS::Region to the URL, which deviates from the 
-                # QuickStart example, because without it, it falls back to 
-                # using an older authentication mechansim, which isn't 
+                # Added AWS::Region to the URL, which deviates from the
+                # QuickStart example, because without it, it falls back to
+                # using an older authentication mechansim, which isn't
                 # supported in all regions.
                 #
-                !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}.amazonaws.com/${MYS3KeyPrefix}scripts/bastion_bootstrap.sh" ]
+                !Join ['',
+                       [!Sub "https://${MirovoyCFAssetsBucket}.s3-",
+                        !Sub "${AWS::Region}.amazonaws.com/${MYS3KeyPrefix}",
+                        "scripts/bastion_bootstrap.sh"
+                       ]
+                ]
+              ]
               mode: "000550"
               owner: "root"
               group: "root"
               authenticaiton: S3AccessCreds
             /etc/ssh/ssh_banner:
-              source: !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}.amazonaws.com/${MYS3KeyPrefix}${BastionBanner}"
+              source: !Join
+                - - ''
+                  - !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}"
+                  - !Sub ".amazonaws.com/${MYS3KeyPrefix}${BastionBanner}"
               mode: "000640"
               owner: "root"
               group: "root"
               authentication: S3AccessCreds
             /tmp/profile:
-              source: !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}.amazonaws.com/${MYS3KeyPrefix}${SkelFileDir}profile"
+              source: !Join
+                - - ''
+                  - !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}"
+                  - !Sub ".amazonaws.com/${MYS3KeyPrefix}${SkelFileDir}profile"
               mode: "000600"
               owner: "root"
               group: "root"
               authentication: S3AccessCreds
             /tmp/shrc:
-              source: !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}.amazonaws.com/${MYS3KeyPrefix}${SkelFileDir}shrc"
+              source: !Join
+                - - ''
+                  - !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}"
+                  - !Sub ".amazonaws.com/${MYS3KeyPrefix}${SkelFileDir}shrc"
               mode: "000600"
               owner: "root"
               group: "root"
@@ -403,7 +344,7 @@ Resources:
           commands:
             b-bootstrap:
               command:
-                !Join [ "", [
+                !Join ["", [
                   "./tmp/bastion_bootstrap.sh",
                   " --banner ",
                   !Ref BastionBanner,
@@ -411,8 +352,7 @@ Resources:
                   !Ref EnableBanner,
                   " --admin-user ",
                   !Ref AdminUser
-                  ]
-                ]
+                ]]
     Properties:
       IamInstanceProfile: !Ref BastionHostProfile
       ImageId: !Ref BastionAMIOS
@@ -426,32 +366,34 @@ Resources:
           - ''
           - - |
               #!/bin/bash -x
-            - |
               #
-            - |
               # update packages
               yum update -y
               # setup environment
             - 'for e in $(echo "'
             - !Ref EnvironmentVariables
             - '" | tr "," " "); do'
-            - |
-                  
+            - |2
+
                   export $e
-            - |
               done
               export PATH=$PATH:/usr/local/bin
-            - |
               # install AWS CLI
               which pip &> /dev/null
-              if [ $? -ne 0 ] ; then
+              if [$? -ne 0] ; then
                   echo "PIP NOT INSTALLED"
-                  $(yum install -y epel-release; yum install -y python-pip) && echo "PIP INSTALLED"
+            - '    $(yum install -y epel-release; yum install -y python-pip) '
+            - '&& echo "PIP INSTALLED"'
+            - |2
+
               fi
               pip install --upgrade pip &> /dev/null
               pip install awscli --ignore-installed six &> /dev/null
-              easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
-            - |
+            - 'easy_install '
+            - 'https://s3.amazonaws.com/cloudformation-examples/'
+            - 'aws-cfn-bootstrap-latest.tar.gz'
+            - |2
+
               # run cfn-init
             - '/opt/aws/bin/cfn-init -v --stack '
             - !Ref 'AWS::StackName'
