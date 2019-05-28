@@ -188,6 +188,44 @@ Resources:
       RouteTableId: !Ref NatRouteTable2
       SubnetId: !Ref AppSubnet2
 
+  # I don't think we need the data subnet to reach the outside world, so
+  # commenting out for now; but we'll leave it here as a reference in case
+  # it becomes necessary
+  #
+  # DataSubnetRouteTableAssociation1:
+    #Condition: AZ1
+    #Type: AWS::EC2::SubnetRouteTableAssociation
+    #Properties:
+      #RouteTableId: !Ref NatRouteTable1
+      #SubnetId: !Ref DataSubnet1
+  #DataSubnetRouteTableAssociation2:
+    #Condition: AZ2
+    #Type: AWS::EC2::SubnetRouteTableAssociation
+    #Properties:
+      #RouteTableId: !Ref NatRouteTable2
+      #SubnetId: !Ref DataSubnet2
+
+  NatRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join ['', ['NatRouteTable1 / ', !Ref 'AWS::StackName']]
+        - Key: Network
+          Value: Public
+      VpcId: !Ref Vpc
+
+  NatRouteTable2:
+    Condition: AZ2
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join ['', ['NatRouteTable2 / ', !Ref 'AWS::StackName']]
+        - Key: Network
+          Value: Public
+      VpcId: !Ref Vpc
+
   DataSubnet1:
     Condition: AZ1
     Type: AWS::EC2::Subnet
@@ -344,9 +382,21 @@ Outputs:
   AppSubnet1:
     Condition: AZ1
     Value: !Ref AppSubnet1
+  AppSubnet1Cidr:
+    Condition: AZ1
+    Description: CIDR block for Application Subnet 1, for use in security groups
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", "AppSubnet1Cidr"]]
+    Value: !Ref AppSubnet1Cidr
   AppSubnet2:
     Condition: AZ2
     Value: !Ref AppSubnet2
+  AppSubnet2Cidr:
+    Condition: AZ2
+    Description: CIDR block for Application Subnet 2, for use in security groups
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", "AppSubnet2Cidr"]]
+    Value: !Ref AppSubnet2Cidr
   DataSubnet1:
     Condition: AZ1
     Value: !Ref DataSubnet1

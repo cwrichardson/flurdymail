@@ -1,0 +1,554 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: 'Mirovoy Reference Architecture - NAT -
+    This template creates an autoscaling group of NAT instances. These
+    instances reside in the public subnet(s) and provide address translation
+    for the application subnets, so apps can reach the internet from the
+    otherwise private subnet in which they reside.'
+
+Metadata:
+
+  Authors:
+    Description: Chris Richardson (cwr@mirovoysales.com)
+  License:
+    Description: 'Copyright 2018 Mirovoy Sales, s.r.o.  and its
+	affiliates. All Rights Reserved.  This is a derivative work
+	of an Amazon template, and as such falls under the derivate
+	works section of the the Amazon Software License (the
+	"License").  You may not use this file except in compliance
+	with the License. A copy of the License is located at
+	http://aws.amazon.com/asl/ This file is distributed on an
+	"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+	either express or implied. See the License for the specific
+	language governing permissions and limitations under the
+	License.'
+
+  AWS::CloudFormation::Interface:
+
+    ParameterGroups:
+      -
+        Label:
+          default: NAT Configuration
+        Parameters:
+          - NatAMIOS
+          - NatInstanceType
+          - NatSecurityGroup
+          - EC2KeyName
+          - AdminUser
+          - AdminPubKey
+          - SkelFileDir
+          - LoginFile
+          - EnvironmentVariables
+          - AlternativeIAMRole
+          - AlternativeInitializationScript
+      -
+        Label:
+          default: AWS S3 Configuration
+        Parameters:
+          - CFAssetsBucket
+          - S3KeyPrefix
+      -
+        Label:
+          default: Amazon VPC Parameters
+        Parameters:
+          - NumberOfAZs
+          - PublicSubnet
+          - AppSubnet
+
+    ParameterLabels:
+      AdminUser:
+        default: Alternative superuser account to create
+      AdminPubKey:
+        default: SSH public key for the AdminUser
+      AppSubnet:
+        default: Application Subnets
+      AlternativeIAMRole:
+        default: Alternative IAM Role
+      AlternativeInitializationScript:
+        default: Alternative Initialization Script
+      CFAssetsBucket:
+        default: S3 Bucket Name for CloudFormation Assets
+      EC2KeyName:
+        default: Existing Key Pair
+      EnvironmentVariables:
+        default: Environment Variables
+      LoginFile:
+        default: Shell configuration file to be put in users home dir
+      NatAMIOS:
+        default: AMI ID for Nat Servers
+      NatInstanceType:
+        default: Instance Type
+      NatSecurityGroup:
+        default: NAT Security Group
+      NumberOfAZs:
+        default: Number of Availability Zones
+      PublicSubnet:
+        default: Public Subnets
+      S3KeyPrefix:
+        default: S3 Bucket Key Prefix for CloudFormation NAT Assets
+      SkelFileDir:
+        default: Skeleton File Directory
+
+Parameters:
+  NumberOfAZs:
+    AllowedValues:
+      - 1
+      - 2
+    Default: 2
+    Description: 'Number of Availability Zones to use from the VPC. You MUST
+      select the same number of subnets in both Application Subnets and Public
+      Subnets, below, as you select here.'
+    Type: Number
+  AdminUser:
+    AllowedPattern: "^[a-z][-a-z0-9]*$"
+    ConstraintDescription: "Must be a valid username for the OS to be used.
+      For sanity's sake, confining this to starting with a lower-case letter,
+      followed by an arbitrary number of lower-case letters, numbers, and the
+      dash character ('-')."
+    Description: 'An alternate account to be created on NAT instances with
+      superuser permissions.'
+    Type: String
+  AdminPubKey:
+    Description: 'The public key text to be installed in the authorized_hosts
+      file for the admin user. Will also be installed as an accepted key for
+      the default admin user.'
+    Type: String
+  AlternativeIAMRole:
+    Description: 'Specify an existing IAM Role name to attach to the NAT
+      instances.  If left blank, a new role will be created.'
+    Default: ''
+    Type: String
+  AlternativeInitializationScript:
+    AllowedPattern: "^http.*|^$"
+    ConstraintDescription: 'URL must begin with "http".'
+    Description: 'Specify an alternative initialization script to run during
+      setup.'
+    Default: ""
+    Type: String
+  AppSubnet:
+    Description: 'Select existing subnets. The number selected must match the
+      number of availability zones above. Subnets selected must be in separate
+      AZs.'
+    Type: List<AWS::EC2::Subnet::Id>
+  CFAssetsBucket:
+    AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
+    ConstraintDescription: 'CloudFront Assets Bucket name can include
+      numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot
+      start or end with a hyphen (-).'
+    Default: "mirovoy-cf-assets"
+    Description: 'S3 bucket name for the CloudFormation assets.'
+    Type: String
+  EC2KeyName:
+    Description: 'Name of an EC2 KeyPair. Your NAT instances will launch with
+      this KeyPair.'
+    Type: AWS::EC2::KeyPair::KeyName
+  EnvironmentVariables:
+    Description: 'Specify a comma separated list of environment variables for
+      use in bootstrapping. Variables must be in the format KEY=VALUE. VALUE
+      cannot contain commas.'
+    Default: ''
+    Type: String
+  NatAMIOS:
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+    Description: AMI ID to use for the NAT instances
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+  NatInstanceType:
+    AllowedValues:
+      - t2.nano
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t3.nano
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - m3.medium
+      - c5.large
+    ConstraintDescription: Must be a valid Amazon EC2 instance type.
+    Default: t3.nano
+    Description: 'NAT EC2 instance type. NB: t3 instances have burstable CPU
+      which is charged at an additional $0.05 per CPU hour. If you are
+      running at max CPU utilization for an entire month, then m3.medium
+      and c5.large are actually more cost effective. Keep an eye on your
+      burst charges and adjust your instance type as necessary.'
+    Type: String
+  NatSecurityGroup:
+    Description: Select the NAT security group.
+    Type: AWS::EC2::SecurityGroup::Id
+  PublicSubnet:
+    Description: 'Select existing subnets. The number selected must match the
+      number of availability zones above. Subnets selected must be in separate
+      AZs.'
+    Type: List<AWS::EC2::Subnet::Id>
+  S3KeyPrefix:
+    AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
+    ConstraintDescription: 'CloudFront Assets S3 bucket key prefix
+      can include numbers, lowercase letters, uppercase letters, hyphens (-),
+      and forward slash (/). The prefix should end with a forward slash (/).'
+    Default: "nat/"
+    Description: 'S3 key prefix for the CloudFormation assets. This
+      should be the top-level directory path inside the bucket, leading to the
+      assets for this template (e.g., scripts directory, etc... are located)'
+    Type: String
+  SkelFileDir:
+    Default: "var/skel/"
+    Description: "Path under S3 prefix for shell configuration file to put in
+      the alternate admin user's home dir, via /etc/skel/. Should end in a
+      slash."
+    Type: String
+
+Conditions:
+  CreateIAMRole:
+    !Equals [!Ref AlternativeIAMRole, '']
+  NumberOfAZs1:
+    !Equals ['1', !Ref NumberOfAZs]
+  NumberOfAZs2:
+    !Equals ['2', !Ref NumberOfAZs]
+  AZ1: !Or
+    - !Condition NumberOfAZs1
+    - !Condition NumberOfAZs2
+  AZ2: !Condition NumberOfAZs2
+  UseAlternativeInitialization:
+    !Not [!Equals [!Ref AlternativeInitializationScript, '']]
+
+Resources:
+
+  NatAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      Cooldown: 60
+      HealthCheckGracePeriod: 120
+      HealthCheckType: EC2
+      LaunchConfigurationName: !Ref NatLaunchConfiguration
+      MaxSize: !Ref NumberOfAZs
+      MinSize: !Ref NumberOfAZs
+      Tags:
+        - Key: Name
+          Value: !Join ['', ['NAT / ', !Ref 'AWS::StackName']]
+          PropagateAtLaunch: true
+      VPCZoneIdentifier:
+        !If [AZ2,
+             [!Select [0, !Ref PublicSubnet], !Select [1, !Ref PublicSubnet]],
+             [!Select [0, !Ref PublicSubnet]]
+        ]
+
+  NatHostRole:
+    Condition: CreateIAMRole
+    Type: AWS::IAM::Role
+    Properties:
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: logs
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource:
+                  - arn:aws:logs:*:*:*
+
+  NatHostPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "NatPolicy"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: "Allow"
+            Action:
+              - "s3:GetObject"
+            Resource: !Sub "arn:aws:s3:::${CFAssetsBucket}/${S3KeyPrefix}*"
+          -
+            Effect: "Allow"
+            Action:
+              - "ec2:CreateRoute"
+              - "ec2:ReplaceRoute"
+              - "ec2:DescribeInstances"
+              - "ec2:DescribeRouteTables"
+              - "ec2:DescribeSubnets"
+              - "ec2:ModifyInstanceAttribute"
+            Resource: "*"
+      Roles:
+        -
+          !If [CreateIAMRole, !Ref NatHostRole, !Ref AlternativeIAMRole]
+
+  NatHostProfile:
+    DependsOn: NatHostPolicy
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !If [CreateIAMRole, !Ref NatHostRole, !Ref AlternativeIAMRole]
+
+  NatLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Metadata:
+      AWS::CloudFormation::Authentication:
+        S3AccessCreds:
+          type: "S3"
+          roleName: !If [
+            CreateIAMRole, !Ref NatHostRole, !Ref AlternativeIAMRole]
+          buckets: [!Ref CFAssetsBucket]
+      AWS::CloudFormation::Init:
+        configSets:
+          bootstrap:
+            - add_admin
+            - enable_logs
+            - start_firewall
+            - enable_nat
+
+        enable_logs:
+          packages:
+            yum:
+              "awslogs": []
+          files:
+            /tmp/awslogs.conf:
+              content: |
+                [general]
+                state_file = /var/lib/awslogs/agent-state
+
+                [/var/log/dmesg]
+                file = /var/log/dmesg
+                log_group_name = CWG
+                log_stream_name = INSTANCE_ID
+
+                [/var/log/messages]
+                file = /var/log/messages
+                log_group_name = CWG
+                log_stream_name = INSTANCE_ID
+                datetime_format = %b %d %H:%M:%S
+                timezone = UTC
+
+                [/var/log/audit/audit.log]
+                file = /var/log/audit/audit.log
+                log_group_name = CWG
+                log_stream_name = INSTANCE_ID
+                datetime_format = %Y-%m-%dT%H:%M:%SZ
+                timezone = UTC
+
+                [/var/log/nat/.nat.log]
+                file = /var/log/nat/.nat.log
+                log_group_name = CWG
+                log_stream_name = INSTANCE_ID
+                datetime_format = %Y-%m-%dT%H:%M:%SZ
+                timezone = UTC
+              mode: "000550"
+              owner: "root"
+              group: "root"
+          commands:
+            01_set_instance_id:
+              command: !Join
+                - ''
+                - - 'sed -i -e "s/INSTANCE_ID/'
+                  - '$(curl -s '
+                  - 'http://169.254.169.254/latest/meta-data/instance-id)'
+                  - '/g" /tmp/awslogs.conf'
+            02_set_cloudwatch_group:
+              command: !Join
+                - ''
+                - - 'sed -i -e "s/CWG/'
+                  - '$(grep CLOUDWATCHGROUP /var/lib/cloud/instance/'
+                  # in yet another WTF YAML? moment, you escape single quotes
+                  # with an extra single quote :(
+                  - 'user-data.txt | sed ''s/CLOUDWATCHGROUP=//g'')/" '
+                  - '/tmp/awslogs.conf'
+            03_config_logs:
+              command: mv /tmp/awslogs.conf /etc/awslogs/awslogs.conf
+            04_config_cli:
+              command: !Join
+                - ''
+                - - !Sub 'sed -i -e "s/region = .*/region = ${AWS::Region}'
+                  - '/g" /etc/awslogs/awscli.conf'
+          services:
+            sysvinit:
+              awslogsd:
+                enabled: true
+                ensureRunning: true
+                files:
+                  - "/etc/awslogs/awslogs.conf"
+                packages:
+                  yum:
+                    - "awslogs"
+
+        add_admin:
+          packages:
+            yum:
+              "ksh": []
+          files:
+            /tmp/nat_bootstrap.sh:
+              source: !If [
+                UseAlternativeInitialization,
+                !Ref AlternativeInitializationScript,
+                #
+                # Added AWS::Region to the URL, which deviates from the
+                # QuickStart example, because without it, it falls back to
+                # using an older authentication mechansim, which isn't
+                # supported in all regions.
+                #
+                !Join ['',
+                       [!Sub "https://${CFAssetsBucket}.s3-",
+                        !Sub "${AWS::Region}.amazonaws.com/${S3KeyPrefix}",
+                        "scripts/nat_bootstrap.sh"
+                       ]
+                ]
+              ]
+              mode: "000550"
+              owner: "root"
+              group: "root"
+              authenticaiton: S3AccessCreds
+            /tmp/profile:
+              source: !Join
+                - ''
+                - - !Sub "https://${CFAssetsBucket}.s3-${AWS::Region}"
+                  - !Sub ".amazonaws.com/${S3KeyPrefix}${SkelFileDir}"
+                  - "profile"
+              mode: "000600"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
+            /tmp/shrc:
+              source: !Join
+                - ''
+                - - !Sub "https://${CFAssetsBucket}.s3-${AWS::Region}"
+                  - !Sub ".amazonaws.com/${S3KeyPrefix}${SkelFileDir}"
+                  - "shrc"
+              mode: "000600"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
+            /tmp/adminpubkey.pub:
+              content: !Ref AdminPubKey
+              mode: "000600"
+              owner: "root"
+              group: "root"
+            /tmp/subnetmap:
+              content: !If
+                - NumberOfAZs2
+                - !Join
+                  - ''
+                  - - !Select [0, !Ref PublicSubnet]
+                    - " "
+                    - !Select [0, !Ref AppSubnet]
+                    - "\n"
+                    - !Select [1, !Ref PublicSubnet]
+                    - " "
+                    - !Select [1, !Ref AppSubnet]
+                - !Join
+                  - ''
+                  - - !Select [0, !Ref PublicSubnet]
+                    - " "
+                    - !Select [0, !Ref AppSubnet]
+              mode: "000600"
+              owner: "root"
+              group: "root"
+          commands:
+            01_add_admin:
+              command:
+                !Join ["", [
+                  "./tmp/nat_bootstrap.sh",
+                  " --admin-user ",
+                  !Ref AdminUser
+                ]]
+
+        start_firewall:
+          packages:
+            yum:
+              "firewalld": []
+          services:
+            sysvinit:
+              firewalld:
+                enabled: true
+                ensureRunning: true
+
+        enable_nat:
+          files:
+            # Taken from old vpc-nat AMIs that aren't supported anymore
+            /usr/sbin/configure-pat.sh:
+              source: !Join
+                - ''
+                - - !Sub "https://${CFAssetsBucket}.s3-${AWS::Region}"
+                  - !Sub ".amazonaws.com/${S3KeyPrefix}scripts/"
+                  - "configure-pat.sh"
+              mode: "000755"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
+          commands:
+            01_config_ip_tables:
+              command: sudo /usr/sbin/configure-pat.sh
+            # for ec2 instances SourceDestCheck is a property, but you can't
+            # configure it for autoscaling groups :(
+            02_disable_src_dst_chk:
+              command: !Join
+                - ''
+                - - 'aws ec2 modify-instance-attribute --instance-id '
+                  - '$(curl -s '
+                  - 'http://169.254.169.254/latest/meta-data/instance-id) '
+                  - '--source-dest-check "{\"Value\": false}" '
+                  - !Sub '--region ${AWS::Region}'
+
+    Properties:
+      AssociatePublicIpAddress: true
+      IamInstanceProfile: !Ref NatHostProfile
+      ImageId: !Ref NatAMIOS
+      InstanceMonitoring: true
+      InstanceType: !Ref NatInstanceType
+      KeyName: !Ref EC2KeyName
+      SecurityGroups:
+        - !Ref NatSecurityGroup
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - |
+              #!/bin/bash -x
+              #
+              # update packages
+              yum update -y
+              # setup environment
+            - 'for e in $(echo "'
+            - !Ref EnvironmentVariables
+            - '" | tr "," " "); do'
+            - |2
+
+                  export $e
+              done
+              export PATH=$PATH:/usr/local/bin
+
+              # install AWS CLI
+              which pip &> /dev/null
+              if [$? -ne 0] ; then
+                  echo "PIP NOT INSTALLED"
+                  $(yum install -y epel-release; yum install -y python-pip) && \
+                      echo "PIP INSTALLED"
+              fi
+              pip install --upgrade pip &> /dev/null
+              pip install awscli --ignore-installed six &> /dev/null
+            - easy_install
+            - https://s3.amazonaws.com/cloudformation-examples/
+            - aws-cfn-bootstrap-latest.tar.gz
+            - |2
+
+              # run cfn-init
+            - '/opt/aws/bin/cfn-init -v --stack '
+            - !Ref 'AWS::StackName'
+            - '		--resource NatLaunchConfiguration '
+            - '		--configsets bootstrap '
+            - '		--region '
+            - !Ref 'AWS::Region'
+            - |+

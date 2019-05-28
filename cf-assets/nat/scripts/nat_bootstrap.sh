@@ -27,10 +27,95 @@ function usage() {
     echo " "
     echo "options:"
     echo -e "--help \t Show options for this script"
-    echo -e "--banner \t Enable or Disable Bastion Message"
-    echo -e "--enable \t SSH Banner"
-    echo -e "--tcp-forwarding \t Enable or Disable TCP Forwarding"
-    echo -e "--x11-forwarding \t Enable or Disable X11 Forwarding"
+    echo -e "--admin-user <user> \t Create admin user"
+}
+
+function addroute () {
+	echo "${FUNCNAME[0]} Started"
+	echo "[INFO] Adding NAT route ..."
+
+	region=$(curl -sq http://169.254.169.254/latest/meta-data/placement/availability-zone/)
+	region=${region: :-1}
+	instanceId=`curl -s http://169.254.169.254/latest/meta-data/instance-id`
+
+	subnetId=$(aws ec2 describe-instances \
+	    --region $region \
+	    --instance-id $instanceId \
+	    --query "Reservations[*].Instances[].SubnetId" \
+	    --output text)
+	appSubnetAdd=$(grep $subnetId /tmp/subnetmap | cut -f2 -d" ")
+	routingTableId=$(aws ec2 describe-route-tables --region $region \
+	    --query \
+	    "RouteTables[*].Associations[?SubnetId=='$appSubnetAdd'].RouteTableId" \
+	    --output text)
+	
+	routes=$(aws ec2 describe-route-tables --region $region \
+	    --filters Name=route-table-id,Values=$routingTableId \
+	    --query "RouteTables[*].Routes" --output text)
+
+        if echo $routes | grep 0\.0\.0\.0/0; then
+                echo "[WARNING] default route for routing table $routingTableId exists. Overwriting."
+                aws ec2 replace-route --route-table-id $routingTableId \
+                    --region $region \
+                    --destination-cidr-block 0.0.0.0/0 \
+                    --instance-id $instanceId --output text
+        else
+                echo "[INFO] adding new route"
+                aws ec2 create-route --route-table-id $routingTableId \
+                    --region $region \
+                    --destination-cidr-block 0.0.0.0/0 \
+                    --instance-id $instanceId --output text
+        fi
+
+	echo "${FUNCNAME[0]} Ended"
+}
+
+function addadmin () {
+    echo "${FUNCNAME[0]} Started"
+	# ADMIN USER CONFIGURATION
+	ADMIN_PUB_KEY="/tmp/adminpubkey.pub"
+	if ! [ -z "$ADMIN_USER" ]; then
+		if [[ -e ${ADMIN_PUB_KEY} ]]; then
+			for SKEL in profile shrc; do
+				if  [[ -e /tmp/${SKEL} ]]; then
+					echo "[INFO] Moving /tmp/${SKEL} into place..."
+					mv /tmp/$SKEL /etc/skel/.$SKEL
+				else
+					echo "[INFO] /tmp/$SKEL not found. "\
+					 "Continuing..."
+				fi
+			done
+			echo "[INFO] Adding admin user ... "
+			useradd -G adm,wheel,systemd-journal -s \
+			    /usr/bin/ksh $ADMIN_USER
+			mv ${ADMIN_PUB_KEY} \
+			    /home/ec2-user/.ssh/${ADMIN_USER}.pub
+			cat /home/ec2-user/.ssh/${ADMIN_USER}.pub >> \
+			    /home/ec2-user/.ssh/authorized_keys
+			cp /home/ec2-user/.ssh/${ADMIN_USER}.pub \
+			    /home/${ADMIN_USER}/
+			chown ${ADMIN_USER}:${ADMIN_USER} \
+			    /home/${ADMIN_USER}/${ADMIN_USER}.pub
+			cd /home/${ADMIN_USER}
+			mkdir .ssh
+			chown ${ADMIN_USER}:${ADMIN_USER} .ssh
+			mv ${ADMIN_USER}.pub .ssh/
+			cat .ssh/${ADMIN_USER}.pub >> .ssh/authorized_keys
+			chown ${ADMIN_USER}:${ADMIN_USER} .ssh/authorized_keys
+			chmod 700 .ssh
+			chmod 600 .ssh/authorized_keys
+			cat <<EOF >>/etc/sudoers.d/cloud-init
+
+# Added by nat_bootstrap
+# User rules for additional admin user
+EOF
+			echo "${ADMIN_USER} ALL=(ALL) NOPASSWD:ALL" \
+			    >>/etc/sudoers.d/cloud-init
+		else
+			echo "[INFO] no public key found, skipping."
+			exit 1;
+		fi
+	fi
 }
 
 function osrelease () {
@@ -46,7 +131,7 @@ function osrelease () {
     else
         echo "Operating System Not Found"
     fi
-    echo "${FUNCNAME[0]} Ended" >> /var/log/cfn-init.log
+    echo "${FUNCNAME[0]} Ended"
 }
 
 
@@ -102,52 +187,16 @@ done
 
 release=$(osrelease)
 if [[ "${release}" == "Operating System Not Found" ]]; then
-    echo "[ERROR] Unsupported Linux Bastion OS"
+    echo "[ERROR] Unsupported Linux NAT OS"
     exit 1
-else
-    setup_cron
 fi
 
-# ADMIN USER CONFIGURATION
-ADMIN_PUB_KEY="/tmp/adminpubkey.pub"
 if ! [ -z "$ADMIN_USER" ]; then
-	if [[ -e ${ADMIN_PUB_KEY} ]]; then
-		for SKEL in profile shrc; do
-			if  [[ -e /tmp/${SKEL} ]]; then
-				echo "[INFO] Moving /tmp/${SKEL} into place..."
-				mv /tmp/$SKEL /etc/skel/.$SKEL
-			else
-				echo "[INFO] /tmp/$SKEL not found. "\
-				 "Continuing..."
-			fi
-		done
-		echo "[INFO] Adding admin user ... "
-		useradd -G adm,wheel,systemd-journal -s /usr/bin/ksh $ADMIN_USER
-		mv ${ADMIN_PUB_KEY} /home/ec2-user/.ssh/${ADMIN_USER}.pub
-		cat /home/ec2-user/.ssh/${ADMIN_USER}.pub >> \
-		    /home/ec2-user/.ssh/authorized_keys
-		cp /home/ec2-user/.ssh/${ADMIN_USER}.pub /home/${ADMIN_USER}/
-		chown ${ADMIN_USER}:${ADMIN_USER} \
-		    /home/${ADMIN_USER}/${ADMIN_USER}.pub
-		cd /home/${ADMIN_USER}
-		mkdir .ssh
-		chown ${ADMIN_USER}:${ADMIN_USER} .ssh
-		mv ${ADMIN_USER}.pub .ssh/
-		cat .ssh/${ADMIN_USER}.pub >> .ssh/authorized_keys
-		chown ${ADMIN_USER}:${ADMIN_USER} .ssh/authorized_keys
-		chmod 700 .ssh
-		chmod 600 .ssh/authorized_keys
-		cat <<EOF >>/etc/sudoers.d/cloud-init
-
-# Added by bastion_bootstrap
-# User rules for additional admin user
-EOF
-		echo "${ADMIN_USER} ALL=(ALL) NOPASSWD:ALL" \
-		    >>/etc/sudoers.d/cloud-init
-	else
-		echo "[INFO] no public key found, skipping."
-		exit 1;
-	fi
+	echo "[INFO] Adding admin ... "
+	addadmin
 fi
+
+addroute
+setup_cron
 
 echo "Bootstrap complete."

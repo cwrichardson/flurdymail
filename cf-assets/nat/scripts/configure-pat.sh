@@ -27,15 +27,34 @@ if [ $? -ne 0 ]; then
    log "The script is not running on a VPC instance. PAT may masquerade traffic for Internet hosts!"
 fi
 
+REGION=$(curl -sq http://169.254.169.254/latest/meta-data/placement/availability-zone/)
+REGION=${REGION: :-1}
+
+INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+
+EXT_SUBNET=$(aws ec2 describe-instances \
+            --region $REGION \
+            --instance-id $INSTANCE_ID \
+            --query "Reservations[*].Instances[].SubnetId" \
+            --output text)
+INT_SUBNET=$(grep $EXT_SUBNET /tmp/subnetmap | cut -f2 -d" ")
+
+INT_CIDR=$(aws ec2 describe-subnets --region $REGION --subnet-ids $INT_SUBNET --output text | grep ^SUBNETS | cut -f6)
+
 log "Enabling PAT..."
 sysctl -q -w net.ipv4.ip_forward=1 net.ipv4.conf.eth0.send_redirects=0 && 
 (
-    iptables -t nat -C POSTROUTING -o eth0 -j MASQUERADE 2> /dev/null ||
-    iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE ) ||
+	firewall-cmd --zone=public \
+	    --add-rich-rule='rule family=ipv4 masquerade' --permanent &&
+	firewall-cmd --zone=external --add-interface=eth0 --permanent &&
+	firewall-cmd --zone=internal --add-source=$INT_CIDR --permanent
+    ) ||
 die
 
+firewall-cmd --reload
+
 sysctl net.ipv4.ip_forward net.ipv4.conf.eth0.send_redirects | log
-iptables -n -t nat -L POSTROUTING | log
+# iptables -n -t nat -L POSTROUTING | log
 
 log "Configuration of PAT complete."
 exit 0
