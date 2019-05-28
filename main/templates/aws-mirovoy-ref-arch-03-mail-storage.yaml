@@ -31,16 +31,19 @@ Metadata:
       - Label:
           default: Mail Server EBS Parameters
         Parameters:
-          - Encrypted
           - LogSize
           - SpoolSize
           - CreateSwap
           - SwapSize
           - LogDelPolicy
           - SpoolDelPolicy
-          - Cmk
           - PrimaryAZ
           - BackupAZ
+      - Label:
+          default: Encrypt EBS Devices
+        Parameters:
+          - EncryptedBoolean
+          - Cmk
       - Label:
           default: Restore from Snapshots
         Parameters:
@@ -48,6 +51,7 @@ Metadata:
           - MasterLogSnapshot
           - BackupSpoolSnapshot
           - BackupLogSnapshot
+
     ParameterLabels:
       EncryptedBoolean:
         default: Encryption state
@@ -150,7 +154,7 @@ Parameters:
     Type: String
   Cmk:
     Description: 'The Amazon Resource Name (ARN) of an existing AWS KMS
-      Customer Master Key (CMK) to encrypt file system.'
+      Customer Master Key (CMK) to encrypt EBS volumes.'
     Type: String
   PrimaryAZ:
     Description: Availability zone in which to create the volumes for the
