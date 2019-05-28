@@ -30,12 +30,20 @@ Metadata:
           - DatabaseInstanceType
           - DatabaseMasterUsername
           - DatabaseMasterPassword
-          - DatabaseEncrpytedBoolean
-          - DatabaseCmk
           - DatabaseSecurityGroup
           - CreateReplica
           - NumberOfSubnets
           - Subnet
+      - Label:
+          default: Database Encryption
+        Parameters:
+          - DatabaseEncrpytedBoolean
+          - DatabaseCmk
+      - Label:
+          default: Restore Backup
+        Parameters:
+          - DatabaseRestoreSnapshot
+
     ParameterLabels:
       DatabaseEncrpytedBoolean:
         default: Encrypted DB Cluster
@@ -121,7 +129,7 @@ Parameters:
       - true
       - false
     Default: true
-    Description: "Whether or not to create a read-replica instance of the 
+    Description: "Whether or not to create a read-replica instance of the
       database."
     Type: String
   NumberOfSubnets:
