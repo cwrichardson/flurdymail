@@ -1240,7 +1240,7 @@ Resources:
                 - - "sed -i 's;^#DOMAIN_PEM_LOCATION=.*;"
                   - "DOMAIN_PEM_LOCATION=\"/etc/pki/dovecot/certs/"
                   - !Ref PrimaryServerName
-                  - ".chain.pem;' getssl.cfg"
+                  - ".chain.pem\";' getssl.cfg"
               cwd: !Join
                 - ''
                 - - /etc/getssl/
@@ -1835,7 +1835,7 @@ Resources:
             19_install_ssl_key:
               command: !Join
                 - ''
-                - - "sed -i '/^ssl_cert =.*/a "
+                - - "sed -i '/^#ssl_cert =.*/a "
                   - "ssl_key = </etc/pki/dovecot/private/"
                   - !Ref PrimaryServerName
                   - ".key' 10-ssl.conf"
