@@ -28,8 +28,6 @@ Metadata:
       - Label:
           default: Mail EC2 Instance Parameters
         Parameters:
-          - AdminUser
-          - AdminPubKey
           - PrimaryServerName
           - VirtualUID
           - EC2KeyName
@@ -40,6 +38,11 @@ Metadata:
           - UseSwap
           - PrimarySubnet
           - BackupSubnet
+      - Label:
+          default: Create Admin User
+        Parameters:
+          - AdminUser
+          - AdminPubKey
       - Label:
           default: Database Parameters
         Parameters:
@@ -59,7 +62,6 @@ Metadata:
           - Origin
           - Banner
           - RelayHost
-          - UnknownLocalErrorCode
           - RootMailRecipient
           - InetProtocols
       - Label:
@@ -69,6 +71,7 @@ Metadata:
           - AccountEmail
           - DNSZone
           - AltDomainList
+          - DnsExtraWait
           - CertFileDir
       - Label:
           default: Dovecot Parameters
@@ -78,6 +81,7 @@ Metadata:
           default: Testing Configuration
         Parameters:
           - InsertTestData
+          - UnknownLocalErrorCode
           - XandrosPass
           - VivitaPass
           - ExternalTestEmail
@@ -112,6 +116,8 @@ Metadata:
         default: Name for the stack that created the RDS instances
       DelayWarningTime:
         default: Wait before warning sender
+      DnsExtraWait:
+        default: DNS Extra Wait
       DNSZone:
         default: DNS Zone for SSL cert verification
       EC2KeyName:
@@ -171,7 +177,7 @@ Metadata:
       BackupSubnet:
         default: Subnet in which to place the backup mail server
       UnknownLocalErrorCode:
-        default: Temp or perm
+        default: Temp or perm unknown local address error code
       UseSwap:
         default: Mount swap volumes?
       VirtualUID:
@@ -191,12 +197,11 @@ Parameters:
       set at account level rather than domain.'
     Type: String
   AdminUser:
-    AllowedPattern: "^[a-z][-a-z0-9]*$"
+    AllowedPattern: "^[a-z][-a-z0-9]*$|^$"
     ConstraintDescription: "Must be a valid username for the OS to
       be used.  For sanity's sake, confining this to starting with
       a lower-case letter, followed by an arbitrary number of
       lower-case letters, numbers, and the dash character ('-')."
-    Default: 'none'
     Description: 'An alternate account (unix user) to be created on mail
       servers with superuser permissions.'
     Type: String
@@ -247,6 +252,14 @@ Parameters:
     Description: "How long does mail remain undelivered before sending a
       warning update to the sender?"
     Type: String
+  DnsExtraWait:
+    Default: 15
+    Description: "When using getssl certificates, we validate with DNS.
+      Sometimes, even after the internal tests are run, the call to the acme
+      server fails the nslookup on the txt record that is uses, so we add
+      an extra delay. If your finding the same problem, try increasing this
+      value."
+    Type: Number
   DNSZone:
     Description: 'The Route53 Hosted Zone that includes the mail server. This
       will be used for automatic authorization during the creation process for
@@ -519,7 +532,7 @@ Conditions:
   GetSSLReal:
     !Equals [!Ref CertSource, 'generate real']
   NoAdminUser:
-    !Equals [!Ref AdminUser, 'none']
+    !Equals [!Ref AdminUser, '']
   SetAccountEmail:
     !Not [!Equals [!Ref AccountEmail, '']]
   SwapOn:
@@ -1195,6 +1208,21 @@ Resources:
                   - "\"/usr/local/bin/dns_del_route53\";' getssl.cfg"
               cwd: /etc/getssl
               test: "! grep ^DNS_DEL_COMMAND getssl.cfg"
+            #
+            # DNS checks sometimes fail to pass at the ACME server, even after
+            # the internal tests are working. DNS can be slow. This sets the
+            # time period to wait, after the internal checks of DNS server have
+            # returned the correct value, before asking the ACME server to
+            # verify the tokens are correct. 
+            #
+            16_set_dns_extra_wait:
+              command: !Join
+                - ''
+                - - "sed -i 's/^#DNS_EXTRA_WAIT.*/DNS_EXTRA_WAIT="
+                  - !Ref DnsExtraWait
+                  - "/' getssl.cfg"
+              cwd: /etc/getssl
+              test: "grep ^#DNS_EXTRA_WAIT getssl.cfg"
             17_set_SANS:
               command: !Join
                 - ''
@@ -1209,9 +1237,10 @@ Resources:
             18_cert_location:
               command: !Join
                 - ''
-                - - "sed -i 's;^#DOMAIN_CERT_LOCATION=\"/etc/ssl/;"
-                  - "DOMAIN_CERT_LOCATION=\"/etc/pki/dovecot/certs/;' "
-                  - "getssl.cfg"
+                - - "sed -i 's;^#DOMAIN_PEM_LOCATION=.*;"
+                  - "DOMAIN_PEM_LOCATION=\"/etc/pki/dovecot/certs/"
+                  - !Ref PrimaryServerName
+                  - ".chain.pem;' getssl.cfg"
               cwd: !Join
                 - ''
                 - - /etc/getssl/
@@ -1228,19 +1257,6 @@ Resources:
                 - - /etc/getssl/
                   - !Ref PrimaryServerName
               test: "grep ^#DOMAIN_KEY getssl.cfg"
-            #20_pem_location:
-              #command: !Join
-                #- ''
-                #- - "sed -i 's;^#DOMAIN_PEM_LOCATION=\"\";"
-                  #- "DOMAIN_PEM_LOCATION=\"/etc/pki/dovecot/private/"
-                  #- !Ref PrimaryServerName
-                  #- ".pem\";' "
-                  #- "getssl.cfg"
-              #cwd: !Join
-                #- ''
-                #- - /etc/getssl/
-                  #- !Ref PrimaryServerName
-              #test: "grep ^#DOMAIN_PEM getssl.cfg"
             #20_reload_command:
               #command: !Join
                 #- ''
@@ -1399,43 +1415,64 @@ Resources:
                   smtpd_hard_error_limit = ${HardErrLimit}
                   smtpd_helo_restrictions = permit_mynetworks, warn_if_reject
                       reject_non_fqdn_hostname, reject_invalid_hostname, permit
-                  smtpd_sender_restrictions = permit_mynetworks,
-                      warn_if_reject reject_non_fqdn_sender,
-                      reject_unknown_sender_domain, reject_unauth_pipelining,
-                      permit
-                  # smtpd_sender_restrictions = permit_sasl_authenticated,
-                      # permit_mynetworks, warn_if_reject reject_non_fqdn_sender,
+                  # smtpd_sender_restrictions = permit_mynetworks,
+                      # warn_if_reject reject_non_fqdn_sender,
                       # reject_unknown_sender_domain, reject_unauth_pipelining,
                       # permit
+                  smtpd_sender_restrictions = permit_sasl_authenticated,
+                      permit_mynetworks, warn_if_reject reject_non_fqdn_sender,
+                      reject_unknown_sender_domain, reject_unauth_pipelining,
+                      permit
                   smtpd_client_restrictions = reject_rbl_client
                       sbl.spamhaus.org, reject_rbl_client blackholes.easynet.nl
-                  smtpd_recipient_restrictions = reject_unauth_pipelining,
-                      permit_mynetworks, 
-                      reject_non_fqdn_recipient,
-                      reject_unknown_recipient_domain,
-                      reject_unauth_destination, permit
                   # smtpd_recipient_restrictions = reject_unauth_pipelining,
-                      # permit_mynetworks, permit_sasl_authenticated,
+                      # permit_mynetworks, 
                       # reject_non_fqdn_recipient,
                       # reject_unknown_recipient_domain,
                       # reject_unauth_destination, permit
+                  smtpd_recipient_restrictions = reject_unauth_pipelining,
+                      permit_mynetworks, permit_sasl_authenticated,
+                      reject_non_fqdn_recipient,
+                      reject_unknown_recipient_domain,
+                      reject_unauth_destination, permit
                   smtpd_data_restrictions = reject_unauth_pipelining
                   smtpd_delay_reject = yes
                   smtpd_helo_required = yes
                   smtpd_sasl_type = dovecot
                   smtpd_sasl_path = private/auth
                   smtpd_sasl_auth_enable = yes
+                  broken_sasl_auth_clients = no
+                  smtpd_sasl_local_domain =
                   smtpd_sasl_security_options = noanonymous
+                  # TLS parameters
+                  # smtp_use_tls = no
+                  # smtpd_use_tls=yes
+                  smtpd_tls_security_level = may
+                  # smtpd_tls_auth_only = no
+                  #
+                  # Use log level 3 only in case of problems.
+                  # Use of log level 4 is strongly discouraged.
+                  smtpd_tls_loglevel = 1
+                  smtpd_tls_received_header = yes
+                  smtpd_tls_session_cache_timeout = 3600s
+                  tls_random_source = dev:/dev/urandom
+                  smtpd_tls_cert_file =
+                      /etc/pki/dovecot/certs/${PrimaryServerName}.chain.pem
+                  smtpd_tls_key_file =
+                      /etc/pki/dovecot/private/${PrimaryServerName}.key
+                  smtpd_tls_session_cache_database =
+                      btree:/var/lib/postfix/smtpd_scache
+                  smtp_tls_session_cache_database =
+                      btree:/var/lib/postfix/smtp_scache
+                  lmtp_tls_session_cache_database =
+                      btree:/var/lib/postfix/lmtp_scache
                   # smtpd_sasl_security_options = noanonymous, noplaintext
                   # smtpd_sasl_tls_security_options = noanonymous
-                  # smtpd_sasl_local_domain =
                   # smtpd_tls_chain_files =
                       # /etc/pki/dovecot/private/${PrimaryServerName}.pem
-                  # smtpd_tls_loglevel = 1
                   # smtpd_tls_mandatory_ciphers = high
                   # smtpd_tls_mandatory_exclude_ciphers = aNULL, MD5
                   # smtpd_tls_mandatory_protocols = !SSLv2, !SSLv3
-                  # smtpd_tls_security_level = may
                   disable_vrfy_command = yes
                   virtual_mailbox_base = /var/spool/mail/virtual
                   virtual_mailbox_maps = mysql:/etc/postfix/mysql_mailbox.cf
