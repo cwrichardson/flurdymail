@@ -790,13 +790,18 @@ Resources:
 
         mount_swap:
           commands:
-            01_make_swap:
+            01_wait_for_volume:
+              command: !Join
+                - ''
+                - - "while [ ! -e /dev/xvdm ]; "
+                  - "do echo Waiting for EBS volume to attach; sleep 5; done"
+            02_make_swap:
               command: "mkswap /dev/xvdm"
               test: '! /usr/sbin/blkid | grep /dev/xvdm.*TYPE=\"swap\"'
-            02_swap_on:
+            03_swap_on:
               command: "/usr/sbin/swapon /dev/xvdm"
               test: "! /usr/sbin/swapon --show | grep /dev/xvdm"
-            03_persist_swap:
+            04_persist_swap:
               command: !Join
                 - ''
                 - - "echo UUID=`/usr/sbin/blkid | grep /dev/xvdm "
@@ -1824,14 +1829,14 @@ Resources:
                 - - "sed -i '/^#ssl_key =.*/a "
                   - "ssl_cert = </etc/pki/dovecot/certs/"
                   - !Ref PrimaryServerName
-                  - ".crt' 10-ssl.conf"
+                  - ".chain.pem' 10-ssl.conf"
               cwd: /etc/dovecot/conf.d
               test: !Join
                 - ''
                 - - "test -f "
                   - "/etc/pki/dovecot/certs/"
                   - !Ref PrimaryServerName
-                  - ".crt"
+                  - ".chain.pem"
             19_install_ssl_key:
               command: !Join
                 - ''
