@@ -85,6 +85,7 @@ Metadata:
           - XandrosPass
           - VivitaPass
           - ExternalTestEmail
+          - DisableServices
       - Label:
           default: Postfix Optional Parameters
         Parameters:
@@ -116,6 +117,8 @@ Metadata:
         default: Name for the stack that created the RDS instances
       DelayWarningTime:
         default: Wait before warning sender
+      DisableServices:
+        default: Services to disable for testing purposes
       DnsExtraWait:
         default: DNS Extra Wait
       DNSZone:
@@ -251,6 +254,22 @@ Parameters:
     Default: 4h
     Description: "How long does mail remain undelivered before sending a
       warning update to the sender?"
+    Type: String
+  DisableServices:
+    AllowedValues:
+      - 01 none
+      - 02 Disable PostGrey
+      - 03 Disable PostGrey, ClamAV
+      - 04 Disable PostGrey, ClamAV, SpamAssassin
+      - 05 Disable PostGrey, ClamAV, SpamAssassin, TLS
+      - 06 Disable PostGrey, ClamAV, SpamAssassin, TLS, SASL
+      - 07 Disable PostGrey, ClamAV, SpamAssassin, TLS, SASL, Dovecot
+      - 08 Configure all but start none
+    Default: 01 none
+    Description: To quote Flurdy, "Test early and frequently." If things
+      don't Just Work, you can roll back to just a basic Postfix installation
+      and start from there. Take a good read of
+      http://flurdy.com/docs/postfix/#test.
     Type: String
   DnsExtraWait:
     Default: 15
@@ -520,13 +539,56 @@ Parameters:
     Type: String
 
 Conditions:
-
   DefaultBanner:
     !Equals [!Ref Banner, '$myhostname ESMTP $mail_name']
   DomainOrigin:
     !Equals [!Ref Origin, 'domain']
+  DontStart:
+    !Equals [!Ref DisableServices, '08 Configure all but start none']
   DownloadCerts:
     !Equals [!Ref CertSource, 'S3']
+  EnableDovecot:
+    !Or
+    - Condition: DontStart
+    - !Not [!Equals
+            [!Ref DisableServices,
+             '07 Disable PostGrey, ClamAV, SpamAssassin, TLS, SASL, Dovecot']]
+  EnableSASL:
+    !Or
+    - Condition: DontStart
+    - !And
+      - Condition: EnableDovecot
+      - !Not [!Equals
+              [!Ref DisableServices,
+               '06 Disable PostGrey, ClamAV, SpamAssassin, TLS, SASL']]
+  EnableTLS:
+    !Or
+    - Condition: DontStart
+    - !And
+      - Condition: EnableSASL
+      - !Not [!Equals
+              [!Ref DisableServices,
+               '05 Disable PostGrey, ClamAV, SpamAssassin, TLS']]
+  EnableSpamAssassin:
+    !Or
+    - Condition: DontStart
+    - !And
+      - Condition: EnableTLS
+      - !Not [!Equals
+              [!Ref DisableServices,
+               '04 Disable PostGrey, ClamAV, SpamAssassin']]
+  EnableClamAV:
+    !Or
+    - Condition: DontStart
+    - !And
+      - Condition: EnableSpamAssassin
+      - !Not [!Equals [!Ref DisableServices, '03 Disable PostGrey, ClamAV']]
+  EnablePostGrey:
+    !Or
+    - Condition: DontStart
+    - !And
+      - Condition: EnableClamAV
+      - !Not [!Equals [!Ref DisableServices, '02 Disable PostGrey']]
   GetSSLTest:
     !Equals [!Ref CertSource, 'generate test']
   GetSSLReal:
@@ -541,7 +603,6 @@ Conditions:
     !Equals [!Ref InsertTestData, true]
 
 Resources:
-
   MailInstanceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -634,20 +695,53 @@ Resources:
             - mount_swap
           insert_test_data:
             - add_test
-          deploy_mailserver:
+          deploy_baseserver:
             - mount_log
             - mount_spool
             - add_mysql
             - config_mysql
-            - get_getssl
             - install_mailserver
-            - config_postfix
-            - config_dovecot
-#            - start_mailserver
           deploy_with_alt_admin:
             - add_admin
             -
-              ConfigSet: "deploy_mailserver"
+              ConfigSet: "deploy_baseserver"
+          # 01 The Kitchen Sink
+          config_01:
+            - get_getssl
+            -
+              ConfigSet: "config_05"
+            - config_tls
+          # 02 Disable PostGrey
+          config_02:
+            - get_getssl
+            -
+              ConfigSet: "config_05"
+            - config_tls
+          # 03 Disable PostGrey, ClamAV
+          config_03:
+            - get_getssl
+            -
+              ConfigSet: "config_05"
+            - config_tls
+          # 04 Disable PostGrey, ClamAV, SpamAssassin
+          config_04:
+            - get_getssl
+            -
+              ConfigSet: "config_05"
+            - config_tls
+          # 05 Disable PostGrey, ClamAV, SpamAssassin, TLS
+          config_05:
+            -
+              ConfigSet: "config_06"
+            - config_dovecot_sasl
+          # 06 Disable PostGrey, ClamAV, SpamAssassin, TLS, SASL
+          config_06:
+            -
+              ConfigSet: "config_07"
+            - config_dovecot
+          # 07 Disable PostGrey, ClamAV, SpamAssassin, TLS, SASL, Dovecot
+          config_07:
+            - config_postfix
 
         add_admin:
           packages:
@@ -1125,11 +1219,11 @@ Resources:
                       '${DatabaseStackName}-MasterDBEndpoint'
                   - " >/dev/null 2>&1 </dev/null)"
 
-        # we need EPEL to get the certbot scripts for LetsEncrypt SSL certs
         get_getssl:
           sources:
             /tmp/getssl: https://github.com/srvrco/getssl/tarball/master
           commands:
+            # we need EPEL to get the certbot scripts for LetsEncrypt SSL certs
             01_make_epel_available:
               command: amazon-linux-extras enable epel
               test: "! yum repolist enabled | grep epel"
@@ -1218,7 +1312,7 @@ Resources:
             # the internal tests are working. DNS can be slow. This sets the
             # time period to wait, after the internal checks of DNS server have
             # returned the correct value, before asking the ACME server to
-            # verify the tokens are correct. 
+            # verify the tokens are correct.
             #
             16_set_dns_extra_wait:
               command: !Join
@@ -1262,16 +1356,6 @@ Resources:
                 - - /etc/getssl/
                   - !Ref PrimaryServerName
               test: "grep ^#DOMAIN_KEY getssl.cfg"
-            #20_reload_command:
-              #command: !Join
-                #- ''
-                #- - "sed -i 's/^#RELOAD_CMD=\""
-                  #- "DOMAIN_KEY_LOCATION=\"/etc/ssl/certs;' getssl.cfg"
-              #cwd: !Join
-                #- ''
-                #- - /etc/getssl/
-                  #- !Ref PrimaryServerName
-              #test: "grep ^#DOMAIN_KEY getssl.cfg"
             21_config_wait_for_dns:
               command: "echo CHECK_ALL_AUTH_DNS=\"true\" >> getssl.cfg"
               cwd: !Join
@@ -1320,7 +1404,7 @@ Resources:
                   - ' '
                   - !Ref AWS::StackName
                   - ' --resource MailServerInstance --configsets '
-                  - !If [NoAdminUser, deploy_mailserver, deploy_with_alt_admin]
+                  - !If [NoAdminUser, deploy_baseserver, deploy_with_alt_admin]
                   - '  --region '
                   - !Ref AWS::Region
                   - |
@@ -1404,9 +1488,39 @@ Resources:
               owner: "postfix"
               group: "postfix"
 
+            /tmp/postfix_tls.cf:
+              content: !Sub |
+                # TLS parameters
+                # smtp_use_tls = no
+                # smtpd_use_tls=yes
+                smtpd_tls_security_level = may
+                # smtpd_tls_auth_only = no
+                #
+                # Use log level 3 only in case of problems.
+                # Use of log level 4 is strongly discouraged.
+                smtpd_tls_loglevel = 1
+                smtpd_tls_received_header = yes
+                smtpd_tls_session_cache_timeout = 3600s
+                tls_random_source = dev:/dev/urandom
+                smtpd_tls_cert_file =
+                    /etc/pki/dovecot/certs/${PrimaryServerName}.chain.pem
+                smtpd_tls_key_file =
+                    /etc/pki/dovecot/private/${PrimaryServerName}.key
+                smtpd_tls_session_cache_database =
+                    btree:/var/lib/postfix/smtpd_scache
+                smtp_tls_session_cache_database =
+                    btree:/var/lib/postfix/smtp_scache
+                lmtp_tls_session_cache_database =
+                    btree:/var/lib/postfix/lmtp_scache
+              mode: "000640"
+              owner: "postfix"
+              group: "postfix"
+
             /tmp/postfix_extras.cf:
               content:
-                !Sub |
+                !If
+                - EnableSASL
+                - !Sub |
                   #
                   # Added by cfn-init
                   # See http://flurdy.com/docs/postfix/#config for details
@@ -1419,19 +1533,23 @@ Resources:
                   smtpd_soft_error_limit = ${SoftErrLimit}
                   smtpd_hard_error_limit = ${HardErrLimit}
                   smtpd_helo_restrictions = permit_mynetworks, warn_if_reject
-                      reject_non_fqdn_hostname, reject_invalid_hostname, permit
+                      reject_non_fqdn_hostname,
+                      reject_invalid_hostname, permit
                   # smtpd_sender_restrictions = permit_mynetworks,
                       # warn_if_reject reject_non_fqdn_sender,
-                      # reject_unknown_sender_domain, reject_unauth_pipelining,
+                      # reject_unknown_sender_domain,
+                      # reject_unauth_pipelining,
                       # permit
                   smtpd_sender_restrictions = permit_sasl_authenticated,
-                      permit_mynetworks, warn_if_reject reject_non_fqdn_sender,
+                      permit_mynetworks,
+                      warn_if_reject reject_non_fqdn_sender,
                       reject_unknown_sender_domain, reject_unauth_pipelining,
                       permit
                   smtpd_client_restrictions = reject_rbl_client
-                      sbl.spamhaus.org, reject_rbl_client blackholes.easynet.nl
+                      sbl.spamhaus.org,
+                      reject_rbl_client blackholes.easynet.nl
                   # smtpd_recipient_restrictions = reject_unauth_pipelining,
-                      # permit_mynetworks, 
+                      # permit_mynetworks,
                       # reject_non_fqdn_recipient,
                       # reject_unknown_recipient_domain,
                       # reject_unauth_destination, permit
@@ -1449,41 +1567,53 @@ Resources:
                   broken_sasl_auth_clients = no
                   smtpd_sasl_local_domain =
                   smtpd_sasl_security_options = noanonymous
-                  # TLS parameters
-                  # smtp_use_tls = no
-                  # smtpd_use_tls=yes
-                  smtpd_tls_security_level = may
-                  # smtpd_tls_auth_only = no
-                  #
-                  # Use log level 3 only in case of problems.
-                  # Use of log level 4 is strongly discouraged.
-                  smtpd_tls_loglevel = 1
-                  smtpd_tls_received_header = yes
-                  smtpd_tls_session_cache_timeout = 3600s
-                  tls_random_source = dev:/dev/urandom
-                  smtpd_tls_cert_file =
-                      /etc/pki/dovecot/certs/${PrimaryServerName}.chain.pem
-                  smtpd_tls_key_file =
-                      /etc/pki/dovecot/private/${PrimaryServerName}.key
-                  smtpd_tls_session_cache_database =
-                      btree:/var/lib/postfix/smtpd_scache
-                  smtp_tls_session_cache_database =
-                      btree:/var/lib/postfix/smtp_scache
-                  lmtp_tls_session_cache_database =
-                      btree:/var/lib/postfix/lmtp_scache
-                  # smtpd_sasl_security_options = noanonymous, noplaintext
-                  # smtpd_sasl_tls_security_options = noanonymous
-                  # smtpd_tls_chain_files =
-                      # /etc/pki/dovecot/private/${PrimaryServerName}.pem
-                  # smtpd_tls_mandatory_ciphers = high
-                  # smtpd_tls_mandatory_exclude_ciphers = aNULL, MD5
-                  # smtpd_tls_mandatory_protocols = !SSLv2, !SSLv3
                   disable_vrfy_command = yes
                   virtual_mailbox_base = /var/spool/mail/virtual
                   virtual_mailbox_maps = mysql:/etc/postfix/mysql_mailbox.cf
                   virtual_alias_maps = mysql:/etc/postfix/mysql_alias.cf
                   virtual_mailbox_domains = mysql:/etc/postfix/mysql_domains.cf
                   virtual_mailbox_domains = mysql:/etc/postfix/mysql_domains.cf
+                  virtual_uid_maps = static:${VirtualUID}
+                  virtual_gid_maps = static:VIRTUALGID
+                # not If EnableSASL
+                - !Sub |
+                  #
+                  # Added by cfn-init
+                  # See http://flurdy.com/docs/postfix/#config for details
+                  delay_warning_time = ${DelayWarningTime}
+                  maximal_queue_lifetime = ${MaxQueueLifetime}
+                  minimal_backoff_time = ${MinBackoffTime}
+                  maximal_backoff_time = ${MaxBackoffTime}
+                  smtp_helo_timeout = ${HeloTimeout}
+                  smtpd_recipient_limit = ${RecipientLimit}
+                  smtpd_soft_error_limit = ${SoftErrLimit}
+                  smtpd_hard_error_limit = ${HardErrLimit}
+                  smtpd_helo_restrictions = permit_mynetworks, warn_if_reject
+                      reject_non_fqdn_hostname, reject_invalid_hostname,
+                      permit
+                  smtpd_sender_restrictions = permit_mynetworks,
+                      warn_if_reject reject_non_fqdn_sender,
+                      reject_unknown_sender_domain, reject_unauth_pipelining,
+                      permit
+                  smtpd_client_restrictions = reject_rbl_client
+                      sbl.spamhaus.org,
+                      reject_rbl_client blackholes.easynet.nl
+                  smtpd_recipient_restrictions = reject_unauth_pipelining,
+                      permit_mynetworks,
+                      reject_non_fqdn_recipient,
+                      reject_unknown_recipient_domain,
+                      reject_unauth_destination, permit
+                  smtpd_data_restrictions = reject_unauth_pipelining
+                  smtpd_delay_reject = yes
+                  smtpd_helo_required = yes
+                  disable_vrfy_command = yes
+                  virtual_mailbox_base = /var/spool/mail/virtual
+                  virtual_mailbox_maps = mysql:/etc/postfix/mysql_mailbox.cf
+                  virtual_alias_maps = mysql:/etc/postfix/mysql_alias.cf
+                  virtual_mailbox_domains =
+                      mysql:/etc/postfix/mysql_domains.cf
+                  virtual_mailbox_domains =
+                      mysql:/etc/postfix/mysql_domains.cf
                   virtual_uid_maps = static:${VirtualUID}
                   virtual_gid_maps = static:VIRTUALGID
               mode: "000640"
@@ -1622,6 +1752,13 @@ Resources:
               command: "cat /tmp/postfix_extras.cf >> main.cf"
               cwd: /etc/postfix
               test: "test -f /tmp/postfix_extras.cf"
+            18_extra_tls:
+              command: !If
+                - EnableTLS
+                - "cat /tmp/postfix_tls.cf >> main.cf"
+                - "echo skipping TLS"
+              cwd: /etc/postfix
+              test: "test -f /tmp/postfix_tls.cf"
             19_mv_aliases:
               command: "cp /etc/aliases ."
               cwd: /etc/postfix
@@ -1646,7 +1783,6 @@ Resources:
               test: "test -d /var/spool/mail/virtual"
 
         config_dovecot:
-
           files:
             /etc/dovecot/dovecot-sql.conf.ext:
               content:
@@ -1805,7 +1941,38 @@ Resources:
                   - "s/#port =.*/port = 0/' 10-master.conf"
               cwd: /etc/dovecot/conf.d
               test: "grep ^service.pop3-login 10-master.conf"
-            15_use_dovecot_socket:
+            15_no_ssl_cert:
+              command: "sed -i 's/^ssl_cert =/#ssl_cert =/' 10-ssl.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "grep ^ssl_cert 10-ssl.conf"
+            16_no_ssl_key:
+              command: "sed -i 's/^ssl_key =/#ssl_key =/' 10-ssl.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "grep ^ssl_key 10-ssl.conf"
+            17_max_connections:
+              command: !Join
+                - ''
+                - - "sed -i 's/#mail_max_userip_connections =.*/"
+                  - "mail_max_userip_connections = "
+                  - !Ref MaxUserConnections
+                  - "/' 20-imap.conf"
+              cwd: /etc/dovecot/conf.d
+              test: "grep .*#mail_max_userip_connections 20-imap.conf"
+            18_switch_sql_for_prefetch:
+              command: !Join
+                - ''
+                - - awk -f /tmp/auth-sql.awk auth-sql.conf.ext
+                  - " > /tmp/prefetch.ext"
+              cwd: /etc/dovecot/conf.d
+              test: "test -f /tmp/auth-sql.awk"
+            19_install_sql_conf:
+              command: mv /tmp/prefetch.ext auth-sql.conf.ext
+              cwd: /etc/dovecot/conf.d
+              test: "test -f /tmp/prefetch.ext"
+
+        config_dovecot_sasl:
+          commands:
+            01_use_dovecot_socket:
               command: |
                 sed -i '/^service auth {/a\
                 unix_listener /var/spool/postfix/private/auth {\
@@ -1815,15 +1982,10 @@ Resources:
                 }' 10-master.conf
               cwd: /etc/dovecot/conf.d
               test: "grep ^service.auth 10-master.conf"
-            16_no_ssl_cert:
-              command: "sed -i 's/^ssl_cert =/#ssl_cert =/' 10-ssl.conf"
-              cwd: /etc/dovecot/conf.d
-              test: "grep ^ssl_cert 10-ssl.conf"
-            17_no_ssl_key:
-              command: "sed -i 's/^ssl_key =/#ssl_key =/' 10-ssl.conf"
-              cwd: /etc/dovecot/conf.d
-              test: "grep ^ssl_key 10-ssl.conf"
-            18_install_ssl_cert:
+
+        config_tls:
+          commands:
+            01_install_ssl_cert:
               command: !Join
                 - ''
                 - - "sed -i '/^#ssl_key =.*/a "
@@ -1837,7 +1999,7 @@ Resources:
                   - "/etc/pki/dovecot/certs/"
                   - !Ref PrimaryServerName
                   - ".chain.pem"
-            19_install_ssl_key:
+            02_install_ssl_key:
               command: !Join
                 - ''
                 - - "sed -i '/^#ssl_cert =.*/a "
@@ -1851,33 +2013,7 @@ Resources:
                   - "/etc/pki/dovecot/private/"
                   - !Ref PrimaryServerName
                   - ".key"
-            20_max_connections:
-              command: !Join
-                - ''
-                - - "sed -i 's/#mail_max_userip_connections =.*/"
-                  - "mail_max_userip_connections = "
-                  - !Ref MaxUserConnections
-                  - "/' 20-imap.conf"
-              cwd: /etc/dovecot/conf.d
-              test: "grep .*#mail_max_userip_connections 20-imap.conf"
-            21_switch_sql_for_prefetch:
-              command: !Join
-                - ''
-                - - awk -f /tmp/auth-sql.awk auth-sql.conf.ext
-                  - " > /tmp/prefetch.ext"
-              cwd: /etc/dovecot/conf.d
-              test: "test -f /tmp/auth-sql.awk"
-            22_install_sql_conf:
-              command: mv /tmp/prefetch.ext auth-sql.conf.ext
-              cwd: /etc/dovecot/conf.d
-              test: "test -f /tmp/prefetch.ext"
 
-#        start_mailserver:
-#          services:
-#            sysvinit:
-#              httpd:
-#                enabled: true
-#                ensureRunning: true
     Properties:
       IamInstanceProfile: !Ref MailInstanceProfile
       ImageId: !Ref MailAMIID
@@ -1897,19 +2033,28 @@ Resources:
             yum update -y
             yum install -y aws-cfn-bootstrap
             /opt/aws/bin/cfn-init \
-              --configsets ${WantSwap}${DeployType}${InsertData} \
+              --configsets ${WantSwap}${DeployType}${InsertData},${Components} \
               --verbose --stack ${AWS::StackName} \
               --resource MailServerInstance --region ${AWS::Region}
             /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} \
               --resource MailServerInstance --region ${AWS::Region}
-          - {DeployType: !If [NoAdminUser, deploy_mailserver,
+          - {DeployType: !If [NoAdminUser, deploy_baseserver,
                               deploy_with_alt_admin],
              WantSwap: !If [SwapOn, "have_swap,", ""],
-             InsertData: !If [UseTestData, ",insert_test_data", ""]}
-#    CreationPolicy:
-#      ResourceSignal:
-#        Count: 1
-#        Timeout: PT5M
+             InsertData: !If [UseTestData, ",insert_test_data", ""],
+             Components: !If
+               [EnablePostGrey, "config_01",
+                !If [EnableClamAV, "config_02",
+                     !If [EnableSpamAssassin, "config_03",
+                          !If [EnableTLS, "config_04",
+                               !If [EnableSASL, "config_05",
+                                    !If [EnableDovecot, "config_06",
+                                         "config_07"]]]]]]}
+
+    # CreationPolicy:
+    #   ResourceSignal:
+    #     Count: 1
+    #     Timeout: PT5M
 
   MasterSpoolMountPoint:
     Type: AWS::EC2::VolumeAttachment
