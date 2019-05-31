@@ -78,6 +78,10 @@ Metadata:
         Parameters:
           - MaxUserConnections
       - Label:
+          default: Amavisd, SpamAssassin, ClamAV
+        Parameters:
+          - SAKillLevelDeflt
+      - Label:
           default: Testing Configuration
         Parameters:
           - InsertTestData
@@ -169,6 +173,8 @@ Metadata:
         default: Send outbound mail via
       RootMailRecipient:
         default: Who receives local mail for root
+      SAKillLevelDeflt:
+        default: Amavisd sa_kill_level_deflt
       SkelFileDir:
         default: S3 Directory for /etc/skel files
       SoftErrLimit:
@@ -294,6 +300,13 @@ Parameters:
       In addition to being put into /etc/mailname, this will also be used for
       the creation of a LetsEncrypt certificate.'
     Type: String
+  SAKillLevelDeflt:
+    Default: 6.9
+    Description: "Triggers spam evasive actions (e.g., blocks mail). Amavisd
+      defaults to 6.9. Flurdy sets it to 8.0. You'll have to play around and
+      see how much spam is getting through, vs. how many false positives
+      you have."
+    Type: Number
   VirtualUID:
     Default: 5000
     Description: 'The UID to be assigned to the user "virtual" which owns all
@@ -719,10 +732,9 @@ Resources:
             - config_tls
           # 03 Disable PostGrey, ClamAV
           config_03:
-            - get_getssl
             -
-              ConfigSet: "config_05"
-            - config_tls
+              ConfigSet: "config_04"
+            - config_amavisd
           # 04 Disable PostGrey, ClamAV, SpamAssassin
           config_04:
             - get_getssl
@@ -1781,6 +1793,11 @@ Resources:
             23_chown_mail_dirs:
               command: "chown -R virtual:virtual /var/spool/mail/virtual"
               test: "test -d /var/spool/mail/virtual"
+          services:
+            sysvinit:
+              postfix:
+                enabled: !If [DontStart, "false", "true"]
+                ensureRunning: !If [DontStart, "false", "true"]
 
         config_dovecot:
           files:
@@ -1969,6 +1986,11 @@ Resources:
               command: mv /tmp/prefetch.ext auth-sql.conf.ext
               cwd: /etc/dovecot/conf.d
               test: "test -f /tmp/prefetch.ext"
+          services:
+            sysvinit:
+              dovecot:
+                enabled: !If [DontStart, "false", "true"]
+                ensureRunning: !If [DontStart, "false", "true"]
 
         config_dovecot_sasl:
           commands:
@@ -1982,6 +2004,9 @@ Resources:
                 }' 10-master.conf
               cwd: /etc/dovecot/conf.d
               test: "grep ^service.auth 10-master.conf"
+            02_hup_dovecot:
+              command: systemctl restart dovecot
+              test: ! systemctl status dovecot
 
         config_tls:
           commands:
@@ -2013,6 +2038,198 @@ Resources:
                   - "/etc/pki/dovecot/private/"
                   - !Ref PrimaryServerName
                   - ".key"
+            03_hup_dovecot:
+              command: systemctl restart dovecot
+              test: systemctl status dovecot 2>&1 > /dev/null
+            04_open_submission_port:
+              command: "sed -i 's/^#submission/submission/' master.cf"
+              cwd: /etc/postfix
+              test: grep -q ^#submission master.cf
+            05_open_smtps:
+              command: "sed -i 's/^#smtps/smtps/' master.cf"
+              cwd: /etc/postfix
+              test: grep -q ^#smtps master.cf
+            06_sasl_auth_enable:
+              command: !Join
+                - ''
+                - - "sed -i -e 's/#  -o smtpd_sasl_auth_enable=yes/"
+                  - "  -o smtpd_sasl_auth_enable=yes/' master.cf"
+              cwd: /etc/postfix
+              test: grep -q ^submission master.cf
+            07_tls_auth_only:
+              command: !Join
+                - ''
+                - - "sed -i -e \"/^  -o smtpd_sasl_auth_enable=yes/a"
+                  - "# if you do not want to restrict it encryption only,"
+                  - " comment out next line\\n"
+                  - "  -o smtpd_tls_auth_only=yes\" master.cf"
+              cwd: /etc/postfix
+              test: grep -q "^  -o smtpd_sasl_auth_enable" master.cf
+            08_submission_smtpd_client_restrictions:
+              command: !Join
+                - ''
+                - - "sed -i -e '/^submission/!b' "
+                  - "-e ':a' -e 's/#  -o smtpd_client_restrictions.*/"
+                  - "  -o smtpd_client_restrictions="
+                  - "permit_sasl_authenticated,reject_unauth_destination,"
+                  - "reject/;t trail' "
+                  - "-e 'n;ba' -e ':trail' -e 'n;btrail' master.cf"
+              cwd: /etc/postfix
+              test: grep -q ^submission master.cf
+            09_smtps_smtpd_client_restrictions:
+              command: !Join
+                - ''
+                - - "sed -i -e '/^smtps/!b' "
+                  - "-e ':a' -e 's/#  -o smtpd_client_restrictions.*/"
+                  - "  -o smtpd_client_restrictions="
+                  - "permit_sasl_authenticated,reject/;t trail' "
+                  - "-e 'n;ba' -e ':trail' -e 'n;btrail' master.cf"
+              cwd: /etc/postfix
+              test: grep -q ^smtps master.cf
+            10_smtpd_sasl_and_tls_security_options:
+              command: !Join
+                - ''
+                - - "sed -i -e \"/^  -o smtpd_client_restrictions=.*/a"
+                  - "\\ \\ -o smtpd_sasl_security_options=noanonymous,"
+                  - "noplaintext\\n"
+                  - "  -o smtpd_sasl_tls_security_options=noanonymous\""
+                  - " master.cf"
+              cwd: /etc/postfix
+              test: grep -q ^submission master.cf
+            11_hup_postfix:
+              command: systemctl restart postfix
+              test: systemctl status postfix 2>&1 > /dev/null
+
+        config_amavisd:
+          packages:
+            yum:
+              amavisd-new: []
+          files:
+            /tmp/amavisd_extra.cf:
+              content: !Sub
+                - |
+                  ${AmavisDef}
+                    -o smtp_data_done_timeout=1200
+                    -o smtp_send_xforward_command=yes
+                    -o disable_dns_lookups=yes
+                    -o max_use=20
+                  ${AmavisPort}
+                    -o content_filter=
+                    -o local_recipient_maps=
+                    -o relay_recipient_maps=
+                    -o smtpd_restriction_classes=
+                    -o smtpd_delay_reject=no
+                    -o smtpd_client_restrictions=permit_mynetworks,reject
+                    -o smtpd_helo_restrictions=
+                    -o smtpd_sender_restrictions=
+                    -o smtpd_recipient_restrictions=permit_mynetworks,reject
+                    -o smtpd_data_restrictions=reject_unauth_pipelining
+                    -o smtpd_end_of_data_restrictions=
+                    -o mynetworks=127.0.0.0/8
+                    -o smtpd_error_sleep_time=0
+                    -o smtpd_soft_error_limit=1001
+                    -o smtpd_hard_error_limit=1000
+                    -o smtpd_client_connection_count_limit=0
+                    -o smtpd_client_connection_rate_limit=0
+                    ${ReceiveOver}
+                - {AmavisDef: !Join ['', ["amavis      unix    -       -",
+                                     "       -       -       2       smtp"]],
+                   AmavisPort: !Join ['', ["127.0.0.1:10025 inet    n       -",
+                                      "       -       -       -       smtpd"]],
+                   ReceiveOver: !Join ['', ["-o receive_override_options=",
+                                       "no_header_body_checks,",
+                                       "no_unknown_recipient_checks"]]}
+              mode: "000640"
+              owner: "root"
+              group: "root"
+
+          commands:
+            01_local_domains_acl:
+              command: !Join
+                - ' '
+                - - sed -i '/^$log_level/i@local_domains_acl = qw(.);'
+                  - ' amavisd.conf'
+              cwd: /etc/amavisd
+              test: grep ^\$log_level amavisd.conf
+            02_log_level:
+              command: sed -i 's/log_level = 0/log_level = 2/' amavisd.conf
+              cwd: /etc/amavisd
+              test: grep ^\$log_level amavisd.conf
+            03_syslog_priority:
+              command: !Join
+                - ' '
+                - - sed -i "/^\$log_level.*/a\$syslog_priority = 'debug';"
+                  - ' amavisd.conf'
+              cwd: /etc/amavisd
+              test: grep ^\$log_level amavisd.conf
+            04_no_tag_level_deflt:
+              command: !Join
+                - ' '
+                - - sed -i 's/^$sa_tag_level_deflt/# $sa_tag_level_deflt/'
+                  - 'amavisd.conf'
+              cwd: /etc/amavisd
+              test: grep ^\$sa_tag_level_deflt amavisd.conf
+            05_no_tag2_level_deflt:
+              command: !Join
+                - ' '
+                - - sed -i 's/^$sa_tag2_level_deflt/# $sa_tag2_level_deflt/'
+                  - 'amavisd.conf'
+              cwd: /etc/amavisd
+              test: grep ^\$sa_tag2_level_deflt amavisd.conf
+            06_kill_level_deflt:
+              command: !Join
+                - ''
+                - - sed -i 's/^$sa_kill_level_deflt = .*;/
+                  - !Sub \$sa_kill_level_deflt = ${SAKillLevelDeflt};/'
+                  - " amavisd.conf"
+              cwd: /etc/amavisd
+              test: grep ^\$sa_tag2_level_deflt amavisd.conf
+            07_no_dsn_cutoff_level:
+              command: !Join
+                - ' '
+                - - sed -i 's/^$sa_dsn_cutoff_level/# $sa_dsn_cutoff_level/'
+                  - 'amavisd.conf'
+              cwd: /etc/amavisd
+              test: grep ^\$sa_dsn_cutoff_level amavisd.conf
+            08_pass_final_spam:
+              command: !Join
+                - ''
+                - - sed -i "s/^\$final_spam_destiny.*= D_DISCARD/
+                  - \$final_spam_destiny\t= D_PASS/"
+                  - ' amavisd.conf'
+              cwd: /etc/amavisd
+              test: grep ^\$final_spam_destiny amavisd.conf
+            09_add_final_spam_comments:
+              command: !Join
+                - ''
+                - - sed -i "/^\$final_spam_destiny.*/a
+                  - "# \\$final_spam_destiny = D_REJECT; # default\\n"
+                  - "# \\$final_spam_destiny = D_BOUNCE; # debian default\\n"
+                  - "# \\$final_spam_destiny = D_DISCARD; # ubuntu default,"
+                  - ' recommended as sender is usually faked'
+                  - '" amavisd.conf'
+              cwd: /etc/amavisd
+              test: grep ^\$final_spam_destiny amavisd.conf
+            10_add_amavisd_conf_to_postfix:
+              command: cat /tmp/amavisd_extra.cf >> master.cf
+              cwd: /etc/postfix
+              test: "! grep ^amavis master.cf"
+            11_add_amavis_pickup_options:
+              command: !Join
+                - ''
+                - - "sed -i -e \"/^pickup.*/a"
+                  - "\\ \\ -o content_filter=\\n"
+                  - "  -o receive_override_options=no_header_body_checks\""
+                  - " master.cf"
+              cwd: /etc/postfix
+              test: grep ^\pickup master.cf
+            12_connect_amavisd_and_postfix:
+              command: !Join
+                - ''
+                - - echo "content_filter = amavis:[127.0.0.1]:10024" >>
+                  - main.cf
+              cwd: /etc/postfix
+              test: "! grep ^content_filter main.cf"
 
     Properties:
       IamInstanceProfile: !Ref MailInstanceProfile
