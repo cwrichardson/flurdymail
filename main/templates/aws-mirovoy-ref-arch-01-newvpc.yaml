@@ -136,7 +136,6 @@ Parameters:
     Type: String
 
 Conditions:
-
   NumberOfAZs1:
     !Equals ['1', !Ref NumberOfAZs]
   NumberOfAZs2:
