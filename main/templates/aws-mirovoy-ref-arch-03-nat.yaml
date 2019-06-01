@@ -122,8 +122,10 @@ Parameters:
   AlternativeInitializationScript:
     AllowedPattern: "^http.*|^$"
     ConstraintDescription: 'URL must begin with "http".'
-    Description: 'Specify an alternative initialization script to run during
-      setup.'
+    Description: 'URL for an alternative initialization script to run during
+      setup. By default, during startup the instances will look in the S3
+      configuration below and run .../<prefix/>scripts/nat_bootstrap.sh.
+      This should be the full URL to an alternative script.'
     Default: ""
     Type: String
   AppSubnet:
