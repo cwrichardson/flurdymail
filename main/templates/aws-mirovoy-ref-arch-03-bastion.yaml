@@ -34,36 +34,50 @@ Metadata:
           - BastionInstanceType
           - BastionSecurityGroup
           - EC2KeyName
-          - LoginFile
           - NumberOfSubnets
           - Subnet
+          - EnableBanner
       - Label:
           default: AWS S3 Configuration
         Parameters:
-          - MirovoyCFAssetsBucket
-          - MYS3KeyPrefix
+          - CFAssetsBucket
+          - S3KeyPrefix
+          - SkelFileDir
+          - BastionBanner
+      - Label:
+          default: Overrides
+        Parameters:
+          - AlternativeIAMRole
+          - AlternativeInitializationScript
+          - EnvironmentVariables
 
     ParameterLabels:
       AdminUser:
         default: Alternative superuser account to create
       AdminPubKey:
         default: SSH public key for the AdminUser
+      AlternativeIAMRole:
+        default: Alternative IAM Role
+      AlternativeInitializationScript:
+        default: Alternative Initialization Script
       BastionAMIOS:
         default: AMI ID for Bastion Servers
       BastionInstanceType:
         default: Instance Type
       BastionSecurityGroup:
         default: Bastion Security Group
+      CFAssetsBucket:
+        default: Mirovvoy CloudFront Assets S3 bucket name
       EC2KeyName:
         default: Existing Key Pair
-      LoginFile:
-        default: Shell configuration file to be put in users home dir
-      MirovoyCFAssetsBucket:
-        default: Mirovvoy CloudFront Assets S3 bucket name
-      MYS3KeyPrefix:
-        default: Mirovoy CloudFront Assets Bastion S3 bucket key prefix
+      EnvironmentVariables:
+        default: Environment Variables
       NumberOfSubnets:
         default: Number of subnets
+      S3KeyPrefix:
+        default: Mirovoy CloudFront Assets Bastion S3 bucket key prefix
+      SkelFileDir:
+        default: Skeleton File Directory
       Subnet:
         default: Subnets
 
@@ -81,6 +95,18 @@ Parameters:
     Description: 'The public key text to be installed in the authorized_hosts
       file for the admin user. Will also be installed as an accepted key for
       the default admin user.'
+    Type: String
+  AlternativeIAMRole:
+    Description: 'Specify an existing IAM Role name to attach to the bastion.
+      If left blank, a new role will be created.'
+    Default: ''
+    Type: String
+  AlternativeInitializationScript:
+    AllowedPattern: "^http.*|^$"
+    ConstraintDescription: 'URL must begin with "http".'
+    Description: 'Specify an alternative initialization script to run during
+      setup.'
+    Default: ""
     Type: String
   BastionBanner:
     Default: "var/banner_message.txt"
@@ -110,6 +136,14 @@ Parameters:
     Default: t3.nano
     Description: Bastion EC2 instance type.
     Type: String
+  CFAssetsBucket:
+    AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
+    ConstraintDescription: 'Mirovoy CloudFront Assets Bucket name can include
+      numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot
+      start or end with a hyphen (-).'
+    Default: "mirovoy-cf-assets"
+    Description: 'S3 bucket name for the Mirovoy CloudFormation assets.'
+    Type: String
   EC2KeyName:
     Description: Name of an EC2 KeyPair. Your bastion instances will launch
       with this KeyPair.
@@ -122,10 +156,11 @@ Parameters:
     Description: 'To include a banner to be displayed when connecting via SSH
       to the bastion, set this parameter to true.'
     Type: String
-  SkelFileDir:
-    Default: "var/skel/"
-    Description: "Path under S3 prefix for Banner text to put in the
-      alternate admin user's home dir, via /etc/skel/. Should end in a slash."
+  EnvironmentVariables:
+    Description: 'Specify a comma separated list of environment variables for
+      use in bootstrapping by the alternative initialization script. Variables
+      must be in the format KEY=VALUE. VALUE cannot contain commas.'
+    Default: ''
     Type: String
   NumberOfSubnets:
     AllowedValues:
@@ -134,19 +169,7 @@ Parameters:
     Description: Number of subnets. This must match your selections in the
       list of subnets below.
     Type: String
-  Subnet:
-    Description: Select existing subnets. The number selected must match the
-      number of subnets above. Subnets selected must be in separate AZs.
-    Type: List<AWS::EC2::Subnet::Id>
-  MirovoyCFAssetsBucket:
-    AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
-    ConstraintDescription: 'Mirovoy CloudFront Assets Bucket name can include
-      numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot
-      start or end with a hyphen (-).'
-    Default: "mirovoy-cf-assets"
-    Description: 'S3 bucket name for the Mirovoy CloudFormation assets.'
-    Type: String
-  MYS3KeyPrefix:
+  S3KeyPrefix:
     AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
     ConstraintDescription: 'Mirovoy CloudFront Assets S3 bucket  key prefix
       can include numbers, lowercase letters, uppercase letters, hyphens (-),
@@ -156,24 +179,16 @@ Parameters:
       should be the top-level directory path inside the bucket, leading to the
       assets for this template (e.g., scripts directory, etc... are located)'
     Type: String
-  AlternativeIAMRole:
-    Description: 'Specify an existing IAM Role name to attach to the bastion.
-      If left blank, a new role will be created.'
-    Default: ''
+  SkelFileDir:
+    Default: "var/skel/"
+    Description: "Path under S3 prefix for shell configuration file to put in
+      the alternate admin user's home dir, via /etc/skel/. Should end in a
+      slash."
     Type: String
-  EnvironmentVariables:
-    Description: 'Specify a comma separated list of environment variables for
-      use in bootstrapping. Variables must be in the format KEY=VALUE. VALUE
-      cannot contain commas.'
-    Default: ''
-    Type: String
-  AlternativeInitializationScript:
-    AllowedPattern: "^http.*|^$"
-    ConstraintDescription: 'URL must begin with "http".'
-    Description: 'Specify an alternative initialization script to run during
-      setup.'
-    Default: ""
-    Type: String
+  Subnet:
+    Description: Select existing subnets. The number selected must match the
+      number of subnets above. Subnets selected must be in separate AZs.
+    Type: List<AWS::EC2::Subnet::Id>
 
 Conditions:
   CreateIAMRole:
@@ -254,7 +269,7 @@ Resources:
             Action:
               - "s3:GetObject"
             Resource:
-              !Sub "arn:aws:s3:::${MirovoyCFAssetsBucket}/${MYS3KeyPrefix}*"
+              !Sub "arn:aws:s3:::${CFAssetsBucket}/${S3KeyPrefix}*"
           -
             Effect: "Allow"
             Action:
@@ -281,7 +296,7 @@ Resources:
           type: "S3"
           roleName: !If [
             CreateIAMRole, !Ref BastionHostRole, !Ref AlternativeIAMRole]
-          buckets: [!Ref MirovoyCFAssetsBucket]
+          buckets: [!Ref CFAssetsBucket]
       AWS::CloudFormation::Init:
         config:
           packages:
@@ -299,8 +314,8 @@ Resources:
                 # supported in all regions.
                 #
                 !Join ['',
-                       [!Sub "https://${MirovoyCFAssetsBucket}.s3-",
-                        !Sub "${AWS::Region}.amazonaws.com/${MYS3KeyPrefix}",
+                       [!Sub "https://${CFAssetsBucket}.s3-",
+                        !Sub "${AWS::Region}.amazonaws.com/${S3KeyPrefix}",
                         "scripts/bastion_bootstrap.sh"
                        ]
                 ]
@@ -312,8 +327,8 @@ Resources:
             /etc/ssh/ssh_banner:
               source: !Join
                 - ''
-                - - !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}"
-                  - !Sub ".amazonaws.com/${MYS3KeyPrefix}${BastionBanner}"
+                - - !Sub "https://${CFAssetsBucket}.s3-${AWS::Region}"
+                  - !Sub ".amazonaws.com/${S3KeyPrefix}${BastionBanner}"
               mode: "000640"
               owner: "root"
               group: "root"
@@ -321,8 +336,8 @@ Resources:
             /tmp/profile:
               source: !Join
                 - ''
-                - - !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}"
-                  - !Sub ".amazonaws.com/${MYS3KeyPrefix}${SkelFileDir}profile"
+                - - !Sub "https://${CFAssetsBucket}.s3-${AWS::Region}"
+                  - !Sub ".amazonaws.com/${S3KeyPrefix}${SkelFileDir}profile"
               mode: "000600"
               owner: "root"
               group: "root"
@@ -330,8 +345,8 @@ Resources:
             /tmp/shrc:
               source: !Join
                 - ''
-                - - !Sub "https://${MirovoyCFAssetsBucket}.s3-${AWS::Region}"
-                  - !Sub ".amazonaws.com/${MYS3KeyPrefix}${SkelFileDir}shrc"
+                - - !Sub "https://${CFAssetsBucket}.s3-${AWS::Region}"
+                  - !Sub ".amazonaws.com/${S3KeyPrefix}${SkelFileDir}shrc"
               mode: "000600"
               owner: "root"
               group: "root"

@@ -37,7 +37,6 @@ Metadata:
           - EC2KeyName
           - AdminUser
           - AdminPubKey
-          - LoginFile
           - EnvironmentVariables
           - AlternativeIAMRole
           - AlternativeInitializationScript
@@ -73,8 +72,6 @@ Metadata:
         default: Existing Key Pair
       EnvironmentVariables:
         default: Environment Variables
-      LoginFile:
-        default: Shell configuration file to be put in users home dir
       NatAMIOS:
         default: AMI ID for Nat Servers
       NatInstanceType:
