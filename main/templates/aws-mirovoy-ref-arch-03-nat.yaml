@@ -37,7 +37,6 @@ Metadata:
           - EC2KeyName
           - AdminUser
           - AdminPubKey
-          - SkelFileDir
           - LoginFile
           - EnvironmentVariables
           - AlternativeIAMRole
@@ -48,6 +47,7 @@ Metadata:
         Parameters:
           - CFAssetsBucket
           - S3KeyPrefix
+          - SkelFileDir
       -
         Label:
           default: Amazon VPC Parameters
@@ -137,7 +137,9 @@ Parameters:
       numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot
       start or end with a hyphen (-).'
     Default: "mirovoy-cf-assets"
-    Description: 'S3 bucket name for the CloudFormation assets.'
+    Description: 'S3 bucket name for the CloudFormation assets. If you look
+      at an S3 URL,
+      it would be "https://<asset-bucke>.s3-<region>.amazonaws.com".'
     Type: String
   EC2KeyName:
     Description: 'Name of an EC2 KeyPair. Your NAT instances will launch with
@@ -185,7 +187,8 @@ Parameters:
     AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
     ConstraintDescription: 'CloudFront Assets S3 bucket key prefix
       can include numbers, lowercase letters, uppercase letters, hyphens (-),
-      and forward slash (/). The prefix should end with a forward slash (/).'
+      and forward slash (/). The prefix should end with a forward slash (/).
+      For example mybucket.s3-eu-central-1.amazonaws.com/<prefix/>.'
     Default: "nat/"
     Description: 'S3 key prefix for the CloudFormation assets. This
       should be the top-level directory path inside the bucket, leading to the
