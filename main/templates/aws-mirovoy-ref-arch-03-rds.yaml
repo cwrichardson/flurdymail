@@ -74,14 +74,16 @@ Parameters:
       - false
     Default: true
     Description: "Indicates whether the DB instances in the cluster are
-      encrypted."
+      encrypted. NOTE: if you select t2.micro as the instance type, then this
+      must be set to 'false', as encryption at rest is unsupported for that
+      instance type."
     Type: String
   DatabaseCmk:
     Description: AWS KMS Customer Master Key (CMK) to encrypt database cluster
     Type: String
   DatabaseInstanceType:
     AllowedValues:
-      # t2.micro not currently available, as it doesn't allow encryption at rest
+      - db.t2.micro
       - db.t2.small
       - db.t2.medium
       - db.t2.large
@@ -135,10 +137,9 @@ Parameters:
   NumberOfSubnets:
     AllowedValues:
       - 2
-      - 3
     Default: 2
     Description: 'Number of subnets. This must match your selections in the
-      list of subnets below.'
+      list of subnets below. Currently the only valid choice is 2.'
     Type: String
   Subnet:
     Description: 'Select existing subnets. The number selected must match the
