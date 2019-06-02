@@ -167,6 +167,7 @@ Parameters:
       - 2
     Description: Number of subnets. This must match your selections in the
       list of subnets below. You should select all Public subnets.
+    Default: 2
     Type: String
   S3KeyPrefix:
     AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
