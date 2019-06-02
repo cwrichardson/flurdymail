@@ -59,7 +59,7 @@ Metadata:
       AvailabilityZones:
         default: Availability Zones
       BackupLogSnapshot:
-        default: Snapshot ID from which to create volume /var/log for master
+        default: Snapshot ID from which to create volume /var/log for backup
       BackupSpoolSnapshot:
         default: Snapshot ID from which to create volume /var/spool for backup
       Cmk:
