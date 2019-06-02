@@ -164,10 +164,9 @@ Parameters:
     Type: String
   NumberOfSubnets:
     AllowedValues:
-      - 1
       - 2
     Description: Number of subnets. This must match your selections in the
-      list of subnets below.
+      list of subnets below. You should select all Public subnets.
     Type: String
   S3KeyPrefix:
     AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
@@ -187,7 +186,8 @@ Parameters:
     Type: String
   Subnet:
     Description: Select existing subnets. The number selected must match the
-      number of subnets above. Subnets selected must be in separate AZs.
+      number of subnets above. Subnets selected must be in separate AZs. You
+      should select all Public subnets.
     Type: List<AWS::EC2::Subnet::Id>
 
 Conditions:
