@@ -90,12 +90,12 @@ Metadata:
 Parameters:
   NumberOfAZs:
     AllowedValues:
-      - 1
       - 2
     Default: 2
     Description: 'Number of Availability Zones to use from the VPC. You MUST
-      select the same number of subnets in both Application Subnets and Public
-      Subnets, below, as you select here.'
+      select the same number of subnets in each of Application Subnets and
+      Public Subnets, below, as you select here. Currently, the only valid
+      choice is 2.'
     Type: Number
   AdminUser:
     AllowedPattern: "^[a-z][-a-z0-9]*$"
