@@ -2230,6 +2230,11 @@ Resources:
                   - main.cf
               cwd: /etc/postfix
               test: "! grep ^content_filter main.cf"
+          services:
+            sysvinit:
+              amavisd:
+                enabled: !If [DontStart, "false", "true"]
+                ensureRunning: !If [DontStart, "false", "true"]
 
     Properties:
       IamInstanceProfile: !Ref MailInstanceProfile
