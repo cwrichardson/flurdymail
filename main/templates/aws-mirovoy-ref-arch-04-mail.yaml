@@ -720,16 +720,18 @@ Resources:
               ConfigSet: "deploy_baseserver"
           # 01 The Kitchen Sink
           config_01:
-            - get_getssl
             -
-              ConfigSet: "config_05"
-            - config_tls
+              ConfigSet: "config_03"
+            - config_clamav
+            - restart_amavis
+            - restart_postfix
           # 02 Disable PostGrey
           config_02:
-            - get_getssl
             -
-              ConfigSet: "config_05"
-            - config_tls
+              ConfigSet: "config_03"
+            - config_clamav
+            - restart_amavis
+            - restart_postfix
           # 03 Disable PostGrey, ClamAV
           config_03:
             -
@@ -2235,6 +2237,53 @@ Resources:
               amavisd:
                 enabled: !If [DontStart, "false", "true"]
                 ensureRunning: !If [DontStart, "false", "true"]
+
+        config_clamav:
+          packages:
+            yum:
+              clamd: []
+          files:
+            /var/lib/clamav/main.cvd:
+              source: http://database.clamav.net/main.cvd
+              mode: "000644"
+              owner: "amavis"
+              group: "root"
+            /var/lib/clamav/daily.cvd:
+              source: http://database.clamav.net/daily.cvd
+              mode: "000644"
+              owner: "amavis"
+              group: "root"
+            /var/lib/clamav/bytecode.cvd:
+              source: http://database.clamav.net/bytecode.cvd
+              mode: "000644"
+              owner: "amavis"
+              group: "root"
+          commands:
+            # clamd takes longer to start than systemctl allows by default :(
+            # systemctl daemon-reload ?
+            01_give_service_start_extra_time:
+              command: "echo TimeoutSec=5min >> clamd@.service"
+              cwd: /usr/lib/systemd/system
+              test: "[ -f clamd@.service ]"
+            02_enable_clamed_amavisd:
+              command: systemctl enable clamd@amavisd
+              test: "! systemctl status clamd@amavisd"
+          services:
+            sysvinit:
+              clamd@amavisd:
+                ensureRunning: !If [DontStart, "false", "true"]
+
+        restart_amavis:
+          commands:
+            01_restart_amavis:
+              command: systemctl restart amavisd
+              test: systemctl status amavisd
+
+        restart_postfix:
+          commands:
+            01_restart_postfix:
+              command: systemctl restart postfix
+              test: systemctl status postfix
 
     Properties:
       IamInstanceProfile: !Ref MailInstanceProfile
