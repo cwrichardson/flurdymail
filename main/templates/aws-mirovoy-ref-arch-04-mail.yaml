@@ -721,9 +721,8 @@ Resources:
           # 01 The Kitchen Sink
           config_01:
             -
-              ConfigSet: "config_03"
-            - config_clamav
-            - restart_amavis
+              ConfigSet: "config_02"
+            - config_postgrey
             - restart_postfix
           # 02 Disable PostGrey
           config_02:
@@ -1463,8 +1462,8 @@ Resources:
                       Fn::ImportValue:
                         !Sub '${DatabaseStackName}-MasterDBEndpoint'
               mode: "000640"
-              owner: "postfix"
-              group: "postfix"
+              owner: "root"
+              group: "root"
             /etc/postfix/mysql_alias.cf:
               content:
                 Fn::Sub:
@@ -1481,8 +1480,8 @@ Resources:
                       Fn::ImportValue:
                         !Sub '${DatabaseStackName}-MasterDBEndpoint'
               mode: "000640"
-              owner: "postfix"
-              group: "postfix"
+              owner: "root"
+              group: "root"
             /etc/postfix/mysql_domains.cf:
               content:
                 Fn::Sub:
@@ -1499,8 +1498,8 @@ Resources:
                       Fn::ImportValue:
                         !Sub '${DatabaseStackName}-MasterDBEndpoint'
               mode: "000640"
-              owner: "postfix"
-              group: "postfix"
+              owner: "root"
+              group: "root"
 
             /tmp/postfix_tls.cf:
               content: !Sub |
@@ -2134,13 +2133,16 @@ Resources:
                     -o smtpd_client_connection_count_limit=0
                     -o smtpd_client_connection_rate_limit=0
                     ${ReceiveOver}
-                - {AmavisDef: !Join ['', ["amavis      unix    -       -",
-                                     "       -       -       2       smtp"]],
-                   AmavisPort: !Join ['', ["127.0.0.1:10025 inet    n       -",
-                                      "       -       -       -       smtpd"]],
-                   ReceiveOver: !Join ['', ["-o receive_override_options=",
-                                       "no_header_body_checks,",
-                                       "no_unknown_recipient_checks"]]}
+                - {AmavisDef: !Join ['',
+                                     ["amavis      unix    -       -",
+                                      "       -       -       2       smtp"]],
+                   AmavisPort: !Join ['',
+                                      ["127.0.0.1:10025 inet    n       -",
+                                       "       -       -       -       smtpd"]],
+                   ReceiveOver: !Join ['',
+                                       ["-o receive_override_options=",
+                                        "no_header_body_checks,",
+                                        "no_unknown_recipient_checks"]]}
               mode: "000640"
               owner: "root"
               group: "root"
@@ -2265,7 +2267,7 @@ Resources:
               command: "echo TimeoutSec=5min >> clamd@.service"
               cwd: /usr/lib/systemd/system
               test: "[ -f clamd@.service ]"
-            02_enable_clamed_amavisd:
+            02_enable_clamd_amavisd:
               command: systemctl enable clamd@amavisd
               test: "! systemctl status clamd@amavisd"
           services:
@@ -2284,6 +2286,28 @@ Resources:
             01_restart_postfix:
               command: systemctl restart postfix
               test: systemctl status postfix
+
+        config_postgrey:
+          packages:
+            yum:
+              postgrey: []
+          commands:
+            01_config_postgrey_max_age:
+              command: sed -i 's/"$/ --max-age=365"/' postgrey
+              cwd: /etc/sysconfig
+              test: "[ -f postgrey ]"
+            02_add_postgrey_to_postfix:
+              command: !Join
+               - ''
+               - - sed -i "s;[[:blank:]]reject_unauth_destination,.*;
+                 - \ reject_unauth_destination,\n\ \ \ \ check_policy_service
+                 - ' unix:postgrey/socket, permit;" main.cf'
+              cwd: /etc/postfix
+          services:
+            sysvinit:
+              postgrey:
+                enabled: !If [DontStart, "false", "true"]
+                ensureRunning: !If [DontStart, "false", "true"]
 
     Properties:
       IamInstanceProfile: !Ref MailInstanceProfile
