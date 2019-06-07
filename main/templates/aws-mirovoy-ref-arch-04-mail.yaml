@@ -80,7 +80,9 @@ Metadata:
       - Label:
           default: Amavisd, SpamAssassin, ClamAV
         Parameters:
+          - SAFinalDest
           - SAKillLevelDeflt
+          - SetMyHost
       - Label:
           default: Testing Configuration
         Parameters:
@@ -89,6 +91,9 @@ Metadata:
           - XandrosPass
           - VivitaPass
           - ExternalTestEmail
+          - ADLogLevel
+          - DisableVirusChecks
+          - DisableSpamChecks
           - DisableServices
       - Label:
           default: Postfix Optional Parameters
@@ -105,12 +110,16 @@ Metadata:
     ParameterLabels:
       AccountEmail:
         default: Email for letsencrypt
+      ADLogLevel:
+        default: AmavisD log level
       AdminUser:
         default: Alternative superuser account to create
       AdminPubKey:
         default: SSH public key for the AdminUser
       AltDomainList:
         default: Other authorized domains / hosts
+      BackupSubnet:
+        default: Subnet in which to place the backup mail server
       Banner:
         default: SMTPD banner message
       CertFileDir:
@@ -121,6 +130,10 @@ Metadata:
         default: Name for the stack that created the RDS instances
       DelayWarningTime:
         default: Wait before warning sender
+      DisableSpamChecks:
+        default: Disable spam checks, even if amavisd is running
+      DisableVirusChecks:
+        default: Disable virus checks, even if amavisd is running
       DisableServices:
         default: Services to disable for testing purposes
       DnsExtraWait:
@@ -167,24 +180,26 @@ Metadata:
         default: My origin
       PrimaryServerName:
         default: The name of the primary mail server
+      PrimarySubnet:
+        default: Subnet in which to place the primary mail server
       RecipientLimit:
         default: Max in the "to" line
       RelayHost:
         default: Send outbound mail via
       RootMailRecipient:
         default: Who receives local mail for root
+      SAFinalDest:
+        default: SPAM Final Destination
       SAKillLevelDeflt:
         default: Amavisd sa_kill_level_deflt
+      SetMyHost:
+        default: Set myhost and mydomain
       SkelFileDir:
         default: S3 Directory for /etc/skel files
       SoftErrLimit:
         default: How many errors before backoff
       StorageStackName:
         default: Name for the stack that created the EBS volumes
-      PrimarySubnet:
-        default: Subnet in which to place the primary mail server
-      BackupSubnet:
-        default: Subnet in which to place the backup mail server
       UnknownLocalErrorCode:
         default: Temp or perm unknown local address error code
       UseSwap:
@@ -205,6 +220,14 @@ Parameters:
     Description: 'The email address for submitting to LetsEncrypt. Generally
       set at account level rather than domain.'
     Type: String
+  ADLogLevel:
+    AllowedValues:
+      - 1
+      - 2
+    Default: 1
+    Description: Sets amavisd logging level. When set to 2, it also changes
+      the syslog_priority from "info" to "debug".
+    Type: Number
   AdminUser:
     AllowedPattern: "^[a-z][-a-z0-9]*$|^$"
     ConstraintDescription: "Must be a valid username for the OS to
@@ -277,6 +300,26 @@ Parameters:
       and start from there. Take a good read of
       http://flurdy.com/docs/postfix/#test.
     Type: String
+  DisableSpamChecks:
+    AllowedValues:
+      - true
+      - false
+    Default: false
+    Description: "Disable all spam checks (sets @bypass_spam_checks_maps =
+      (1)). This can be useful if you're having a hard time just getting
+      amavisd up and running and passing messages back and forth from
+      postfix."
+    Type: String
+  DisableVirusChecks:
+    AllowedValues:
+      - true
+      - false
+    Default: false
+    Description: "Disable all virus checks (sets @bypass_virus_checks_maps =
+      (1)). This can be useful if you're having a hard time just getting
+      amavisd up and running and passing messages back and forth from
+      postfix."
+    Type: String
   DnsExtraWait:
     Default: 15
     Description: "When using getssl certificates, we validate with DNS.
@@ -298,19 +341,47 @@ Parameters:
     Default: 'mail.example.com'
     Description: 'The fully qualified domain name for the primary mail server.
       In addition to being put into /etc/mailname, this will also be used for
-      the creation of a LetsEncrypt certificate.'
+      the creation of a LetsEncrypt certificate, if you use LetsEncrypt, below.'
+    Type: String
+  SAFinalDest:
+    AllowedValues:
+      - D_PASS
+      - D_BOUNCE
+      - D_DISCARD
+      - D_REJECT
+    Default: D_DISCARD
+    Description: Sets final_spam_destiny variable. The Debian default is
+      D_BOUNCE; the Ubuntu default is D_DISCARD, which is recommended, as
+      bouncing leads to backscatter and the sender is usually faked anyhow.
+      The package that installs here defaults to D_REJECT.
+      Setting it to D_PASS is useful for testing, as you can still run
+      mail through SpamAssassin, get the headers attached, but not filter
+      the message.
     Type: String
   SAKillLevelDeflt:
-    Default: 6.9
+    Default: 8.0
     Description: "Triggers spam evasive actions (e.g., blocks mail). Amavisd
       defaults to 6.9. Flurdy sets it to 8.0. You'll have to play around and
       see how much spam is getting through, vs. how many false positives
       you have."
     Type: Number
+  SetMyHost:
+    AllowedValues:
+      - true
+      - false
+    Default: false
+    Description: "AmavisD has two variables, myhost and mydomain, which
+      get inserted into mail headers. By default, those values are
+      host.example.com and example.com, respectively. If you set this to
+      true, then those defaults will be changed to the host and domain
+      you configured as the primary server name, above."
+    Type: String
   VirtualUID:
     Default: 5000
-    Description: 'The UID to be assigned to the user "virtual" which owns all
-      mailboxes on the system.'
+    Description: The UID to be assigned to the user "virtual" which owns all
+      mailboxes on the system. Note, we can't conveniently assign a GID with
+      CloudFormation, so unlike Flurdy where that is also 5000, the GID
+      for the virtual group will be assigned by the system.
     Type: Number
   DatabaseStackName:
     AllowedPattern: ^([a-zA-Z0-9]+[a-zA-Z0-9\-]*)$
@@ -552,6 +623,14 @@ Parameters:
     Type: String
 
 Conditions:
+  ADDebug:
+    !Equals [!Ref ADLogLevel, 2]
+  ADDomain:
+    !Equals [!Ref SetMyHost, true]
+  ADVirusOff:
+    !Equals [!Ref DisableVirusChecks, true]
+  ADSpamOff:
+    !Equals [!Ref DisableSpamChecks, true]
   DefaultBanner:
     !Equals [!Ref Banner, '$myhostname ESMTP $mail_name']
   DomainOrigin:
@@ -2156,14 +2235,18 @@ Resources:
               cwd: /etc/amavisd
               test: grep ^\$log_level amavisd.conf
             02_log_level:
-              command: sed -i 's/log_level = 0/log_level = 2/' amavisd.conf
+              command: !Join
+                - ' '
+                - - sed -i 's/log_level = 0/log_level =
+                  - !Sub ${ADLogLevel}/' amavisd.conf
               cwd: /etc/amavisd
               test: grep ^\$log_level amavisd.conf
             03_syslog_priority:
               command: !Join
-                - ' '
-                - - sed -i "/^\$log_level.*/a\$syslog_priority = 'debug';"
-                  - ' amavisd.conf'
+                - ''
+                - - sed -i "/^\$log_level.*/a\$syslog_priority = '
+                  - !If [ADDebug, debug, info]
+                  - "';\" amavisd.conf"
               cwd: /etc/amavisd
               test: grep ^\$log_level amavisd.conf
             04_no_tag_level_deflt:
@@ -2199,7 +2282,7 @@ Resources:
               command: !Join
                 - ''
                 - - sed -i "s/^\$final_spam_destiny.*= D_DISCARD/
-                  - \$final_spam_destiny\t= D_PASS/"
+                  - !Sub \$final_spam_destiny\t= ${SAFinalDest}/"
                   - ' amavisd.conf'
               cwd: /etc/amavisd
               test: grep ^\$final_spam_destiny amavisd.conf
@@ -2218,6 +2301,46 @@ Resources:
               command: cat /tmp/amavisd_extra.cf >> master.cf
               cwd: /etc/postfix
               test: "! grep ^amavis master.cf"
+            11_set_my_domain:
+              command: !If
+                - ADDomain
+                - !Join
+                  - ' '
+                  - - sed -i "s/^\$mydomain.*/\$mydomain = \'$(cat
+                    - /etc/mailname | cut -f2- -d.)\';/" amavisd.conf
+                - "echo leaving mydomain alone"
+              cwd: /etc/amavisd
+              test: grep ^\$mydomain amavisd.conf
+            12_set_my_host:
+              command: !If
+                - ADDomain
+                - !Join
+                  - ' '
+                  - - sed -i "/^# \$myhostname.*/a\$myhostname = \'$(cat
+                    - /etc/mailname)\';" amavisd.conf
+                - "echo leaving myhostname alone"
+              cwd: /etc/amavisd
+              test: grep "^# \$myhostname" amavisd.conf
+            13_bypass_virus_checks:
+              command: !If
+                - ADVirusOff
+                - !Join
+                  - ''
+                  - - sed -i 's/^# @bypass_virus_checks_maps =/
+                    - "@bypass_virus_checks_maps =/' amavisd.conf"
+                - "echo leaving bypass_virus_checks_maps alone"
+              cwd: /etc/amavisd
+              test: grep "^# \@bypass_virus_checks_maps =" amavisd.conf
+            14_bypass_spam_checks:
+              command: !If
+                - ADSpamOff
+                - !Join
+                  - ''
+                  - - sed -i 's/^# @bypass_spam_checks_maps =/
+                    - "@bypass_spam_checks_maps =/' amavisd.conf"
+                - "echo leaving bypass_spam_checks_maps alone"
+              cwd: /etc/amavisd
+              test: grep "^# \@bypass_virus_checks_maps =" amavisd.conf
             11_add_amavis_pickup_options:
               command: !Join
                 - ''
@@ -2298,10 +2421,10 @@ Resources:
               test: "[ -f postgrey ]"
             02_add_postgrey_to_postfix:
               command: !Join
-               - ''
-               - - sed -i "s;[[:blank:]]reject_unauth_destination,.*;
-                 - \ reject_unauth_destination,\n\ \ \ \ check_policy_service
-                 - ' unix:postgrey/socket, permit;" main.cf'
+                - ''
+                - - sed -i "s;[[:blank:]]reject_unauth_destination,.*;
+                  - \ reject_unauth_destination,\n\ \ \ \ check_policy_service
+                  - ' unix:postgrey/socket, permit;" main.cf'
               cwd: /etc/postfix
           services:
             sysvinit:
