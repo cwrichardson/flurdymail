@@ -67,7 +67,6 @@ Metadata:
         default: Subnets
 
 Parameters:
-
   DatabaseEncrpytedBoolean:
     AllowedValues:
       - true
