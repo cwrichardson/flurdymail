@@ -6,21 +6,17 @@ Description: 'Mirovoy Reference Architecture - Launch RDS
     in an alternative availability zone.'
 
 Metadata:
-
   Authors:
-    Description: Chris Richardson (cwr@mirovoysales.com
+    Description: Chris Richardson (cwr@mirovoysales.com)
+
   License:
-    Description: 'Copyright 2018 Mirovoy Sales, s.r.o.  and its
-	affiliates. All Rights Reserved.  This is a derivative work
-	of an Amazon template, and as such falls under the derivate
-	works section of the the Amazon Software License (the
-	"License").  You may not use this file except in compliance
-	with the License. A copy of the License is located at
-	http://aws.amazon.com/asl/ This file is distributed on an
-	"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
-	either express or implied. See the License for the specific
-	language governing permissions and limitations under the
-	License.'
+    Description: 'Copyright 2018-2019 Mirovoy Sales, s.r.o. and its affiliates.
+      All Rights Reserved.
+      SPDX-License-Identifier: MIT-0'
+
+  History:
+    Description: This work is based off of the aws-refarch-wordpress
+      templates originally authored by Darryl Osborne (darrylo@amazon.com)
 
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -37,7 +33,7 @@ Metadata:
       - Label:
           default: Database Encryption
         Parameters:
-          - DatabaseEncrpytedBoolean
+          - DatabaseEncryptedBoolean
           - DatabaseCmk
       - Label:
           default: Restore Backup
@@ -45,7 +41,7 @@ Metadata:
           - DatabaseRestoreSnapshot
 
     ParameterLabels:
-      DatabaseEncrpytedBoolean:
+      DatabaseEncryptedBoolean:
         default: Encrypted DB Cluster
       DatabaseCmk:
         default: AWS KMS Customer Master Key (CMK) to encrypt DB
@@ -67,7 +63,7 @@ Metadata:
         default: Subnets
 
 Parameters:
-  DatabaseEncrpytedBoolean:
+  DatabaseEncryptedBoolean:
     AllowedValues:
       - true
       - false
@@ -146,7 +142,6 @@ Parameters:
     Type: List<AWS::EC2::Subnet::Id>
 
 Conditions:
-
   NumberOfSubnets1:
     !Equals [1, !Ref NumberOfSubnets]
   NumberOfSubnets2:
@@ -188,7 +183,7 @@ Resources:
       MasterUserPassword: !If [NoSnapshot, !Ref DatabaseMasterPassword,
                                !Ref 'AWS::NoValue']
       Port: 3306
-      StorageEncrypted: !Ref DatabaseEncrpytedBoolean
+      StorageEncrypted: !Ref DatabaseEncryptedBoolean
       SnapshotIdentifier: !If [NoSnapshot, !Ref 'AWS::NoValue',
                                !Ref DatabaseRestoreSnapshot]
       Tags:

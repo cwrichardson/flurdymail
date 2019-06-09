@@ -9,18 +9,15 @@ Metadata:
 
   Authors:
     Description: Chris Richardson (cwr@mirovoysales.com)
+
   License:
-    Description: 'Copyright 2018 Mirovoy Sales, s.r.o.  and its
-	affiliates. All Rights Reserved.  This is a derivative work
-	of an Amazon template, and as such falls under the derivate
-	works section of the the Amazon Software License (the
-	"License").  You may not use this file except in compliance
-	with the License. A copy of the License is located at
-	http://aws.amazon.com/asl/ This file is distributed on an
-	"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
-	either express or implied. See the License for the specific
-	language governing permissions and limitations under the
-	License.'
+    Description: 'Copyright 2018-2019 Mirovoy Sales, s.r.o. and its affiliates.
+      All Rights Reserved.
+      SPDX-License-Identifier: MIT-0'
+
+  History:
+    Description: This work is based off of the aws-refarch-wordpress
+      templates originally authored by Darryl Osborne (darrylo@amazon.com)
 
   AWS::CloudFormation::Interface:
     ParameterGroups:
