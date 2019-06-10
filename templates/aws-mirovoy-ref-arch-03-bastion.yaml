@@ -80,7 +80,7 @@ Metadata:
 
 Parameters:
   AdminUser:
-    AllowedPattern: "^[a-z][-a-z0-9]*$"
+    AllowedPattern: "^[a-z][-a-z0-9]*$|^$"
     ConstraintDescription: "Must be a valid username for the OS to be used.
       For sanity's sake, confining this to starting with a lower-case letter,
       followed by an arbitrary number of lower-case letters, numbers, and the
