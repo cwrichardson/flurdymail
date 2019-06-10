@@ -24,18 +24,23 @@ Metadata:
     ParameterGroups:
       -
         Label:
+          default: Mandatory Parameters
+        Parameters:
+          - EC2KeyName
+          - NumberOfAZs
+          - AvailabilityZones
+          - DatabaseMasterPassword
+      -
+        Label:
           default: General Parameters
         Parameters:
           - AdminUser
           - AdminPubKey
-          - EC2KeyName
           - AMIOS
       -
         Label:
           default: Amazon VPC Parameters
         Parameters:
-          - NumberOfAZs
-          - AvailabilityZones
           - VpcCidr
           - VpcTenancy
           - PublicSubnet1Cidr
@@ -56,7 +61,6 @@ Metadata:
         Parameters:
           - DatabaseInstanceType
           - DatabaseMasterUsername
-          - DatabaseMasterPassword
           - CreateReplica
           - DatabaseEncryptedBoolean
           - DatabaseCmk
@@ -318,9 +322,10 @@ Parameters:
     Type: String
   DatabaseMasterUsername:
     AllowedPattern: ^([a-zA-Z0-9]*)$
-    Description: The "root" user to configure for the Amazon RDS database.
     ConstraintDescription: "Must contain only alphanumeric characters
       (minimum 8; maximum 16)."
+    Default: root
+    Description: The "root" user to configure for the Amazon RDS database.
     MaxLength: 32
     MinLength: 1
     Type: String
