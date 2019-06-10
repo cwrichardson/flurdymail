@@ -100,6 +100,7 @@ Parameters:
       superuser permissions.'
     Type: String
   AdminPubKey:
+    Default: ''
     Description: 'The public key text to be installed in the authorized_hosts
       file for the admin user. Will also be installed as an accepted key for
       the default admin user.'
@@ -194,6 +195,8 @@ Parameters:
     Type: String
 
 Conditions:
+  CreateAltAdmin:
+    !Not [!Equals [!Ref AdminUser, '']]
   CreateIAMRole:
     !Equals [!Ref AlternativeIAMRole, '']
   NumberOfAZs1:
@@ -428,8 +431,11 @@ Resources:
               group: "root"
               authentication: S3AccessCreds
             /tmp/adminpubkey.pub:
-              content: !Ref AdminPubKey
-              mode: "000600"
+              content: !If
+                - CreateAltAdmin
+                - !Ref AdminPubKey
+                - " "
+              mode: "000644"
               owner: "root"
               group: "root"
             /tmp/subnetmap:
@@ -454,12 +460,14 @@ Resources:
               group: "root"
           commands:
             01_add_admin:
-              command:
-                !Join ["", [
-                  "./tmp/nat_bootstrap.sh",
-                  " --admin-user ",
-                  !Ref AdminUser
-                ]]
+              command: !If
+                - CreateAltAdmin
+                - !Join ["", [
+                    "./tmp/nat_bootstrap.sh",
+                    " --admin-user ",
+                    !Ref AdminUser
+                  ]]
+                - "./tmp/nat_bootstrap.sh"
 
         start_firewall:
           packages:

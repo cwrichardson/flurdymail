@@ -89,6 +89,7 @@ Parameters:
       superuser permissions.'
     Type: String
   AdminPubKey:
+    Default: ''
     Description: 'The public key text to be installed in the authorized_hosts
       file for the admin user. Will also be installed as an accepted key for
       the default admin user.'
@@ -189,6 +190,8 @@ Parameters:
     Type: List<AWS::EC2::Subnet::Id>
 
 Conditions:
+  CreateAltAdmin:
+    !Not [!Equals [!Ref AdminUser, '']]
   CreateIAMRole:
     !Equals [!Ref AlternativeIAMRole, '']
   NumberOfSubnets1:
@@ -350,22 +353,34 @@ Resources:
               group: "root"
               authentication: S3AccessCreds
             /tmp/adminpubkey.pub:
-              content: !Ref AdminPubKey
-              mode: "000600"
+              content: !If
+                - CreateAltAdmin
+                - !Ref AdminPubKey
+                - " "
+              mode: "000644"
               owner: "root"
               group: "root"
           commands:
             b-bootstrap:
-              command:
-                !Join ["", [
-                  "./tmp/bastion_bootstrap.sh",
-                  " --banner ",
-                  !Ref BastionBanner,
-                  " --enable ",
-                  !Ref EnableBanner,
-                  " --admin-user ",
-                  !Ref AdminUser
-                ]]
+              command: !If
+                - CreateAltAdmin
+                - !Join ["", [
+                    "./tmp/bastion_bootstrap.sh",
+                    " --banner ",
+                    !Ref BastionBanner,
+                    " --enable ",
+                    !Ref EnableBanner,
+                    " --admin-user ",
+                    !Ref AdminUser
+                  ]]
+                - !Join ["", [
+                    "./tmp/bastion_bootstrap.sh",
+                    " --banner ",
+                    !Ref BastionBanner,
+                    " --enable ",
+                    !Ref EnableBanner
+                  ]]
+
     Properties:
       IamInstanceProfile: !Ref BastionHostProfile
       ImageId: !Ref BastionAMIOS

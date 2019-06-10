@@ -162,9 +162,6 @@ checkos
 TEMP=`getopt -o h --longoptions help,admin-user: -n $0 -- "$@"`
 eval set -- "${TEMP}"
 
-
-if [[ $# == 1 ]] ; then echo "No input provided! type ($0 --help) to see usage help" >&2 ; exit 1 ; fi
-
 # extract options and their arguments into variables.
 while true; do
     case "$1" in
