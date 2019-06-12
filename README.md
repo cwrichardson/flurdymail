@@ -7,8 +7,8 @@
 ---
 
 This reference architecture provides a set of YAML templates for deploying
-primary and backup [Flurdy email servers][flurdy] as extended by [Jon
-Jerome] for Dovecot support on AWS using [AWS CloudFormation], The servers
+primary and backup [Flurdy email servers][flurdy] (as extended by [Jon
+Jerome] for Dovecot support) on AWS using [AWS CloudFormation], The servers
 run
 
 * Amazon Linux 2
@@ -23,8 +23,12 @@ run
 
 with additional servers deployed for
 
-* Roundcube, and
+* Roundcube (and optionally WordPress), and
 * phpMyAdmin
+
+behind an
+
+* AWS Elastic Load Balancer
 
 The dedicated Flurdy fan will already notice several, minor variations
 from the default Flurdy deployment (the use of Amazon Linux 2 instead
@@ -87,27 +91,35 @@ with the Flurdy email server setup, and AWS CloudFormation.
 ![architecture-overview](images/Mirovoy-AWS-Architecture-Light-190609a.png)
 
 The repository consists of a set of nested templates. The master template
-contains two sub-templates: one for general infrastructure and one for
-email-specific infrastructure. Each of these, in turn, nest a series of
-templates which are run in order. Nested templates can be run individually in 
-order, entering the appropriate input parameters for each stack. In actual
-practice, I tend to run the full stack when experimenting with new changes,
-but for production, run the two first-level stacks (infrastructure and email)
-separately. Even when playing around with changing the templates, I tend
-to just run the infrastructure, because the databases take a long time to 
-set up (it's only a few minutes, but if you have to take them down and set
-them back up every time you make a change, it becomes annoying).
+nests three sub-templates: one for general infrastructure, one for
+web-specific infrastructure, and one for email-specific infrastructure.
+Each of these, in turn, nest a series of templates which are run in
+order. Nested templates can be run individually in order, entering the
+appropriate input parameters for each stack. In actual practice, I tend
+to run the full stack when experimenting with new changes, but for
+production, run the first-level stacks (infrastructure, web, and email)
+separately. Even (especially) when making minor changes, I tend
+to just run the infrastructure, because the databases take a long time
+to set up (it's only a few minutes, but if you have to take them down
+and set them back up every time you make a change and get a typo 
+in YAML, it becomes annoying).
 
 The infrastructure template sets up the [Amazon Virtual Private Cloud],
 with three subnets — one public subnet (a DMZ in classic networking
 parlance), one private subnet for applications, and one private subnet
-for the data layer — in each of two availability zones; a [Network
-Load Balancer], which splits traffic across the Webmail servers (in my live
-deployments these same servers are used for my wordpress hosting); two
-[Auto Scaling] groups (one for [NAT Instances], which by default spin up
-one instance per AZ, and one for [Bastion Hosts], which by default spin up
-none); and an [Amazon RDS MySQL] server in the data subnet in one availability
-zone, with a read-replica MySQL server in the second availability zone.
+for the data layer — in each of two availability zones; an [Application
+Load Balancer], which splits traffic across the Webmail servers (in my
+live deployments these same servers are used for my wordpress hosting)
+and phpMyAdminServers; two [Auto Scaling] groups (one for [NAT Instances],
+which by default spin up one instance per AZ, and one for [Bastion Hosts],
+which by default spin up none); and an [Amazon RDS MySQL] server in the
+data subnet in one availability zone, with a read-replica MySQL server
+in the second availability zone.
+
+The web template sets up two auto-scaling groups running [Apache]. The
+first auto-scaling group defaults to one instance, and can be configured
+to run [WordPress], [Roundcube], neither, or both. The second auto-scaling
+group defaults to zero instances and runs [phpMyAdmin].
 
 The mail template sets up an [Amazon EC2] (Amazon Elastic Compute Cloud)
 instance running a Flurdy server in one of the public subnets, and optionally
@@ -187,9 +199,21 @@ good way to set the GID with CloudFormation, so it gets set automatically.
 #### Dovecot SSL
 
 Jon Jerome sets it to "yes". I set it to "required". (It's optional for
-server-server SNMP communication, but why let it be optional for IMAP?
+server-server SNMP communication, but why let it be optional for IMAP?)
 
 #### SSL Certificates
+
+##### SSL for Email: Let's Encrypt
+
+These templates default to getting "fake" SSL certificates for the email
+servers from [Let's Encrypt], using [GetSSL]. This is approximately equivalent
+to creating your own CA. The benefit is, once everything is working, you
+can switch the configuration option, and get real SSL certificates that
+will be accepted by people's IMAP clients. The downside is, it only works
+if the primary domain for the mail server has DNS hosted in [Route53]. There
+is an option to not install SSL certificates, and another to let you
+put existing certificates in an S3 bucket and install them from there, but
+neither of those options are tested (and probably don't work).
 
 SSL certificates are in /etc/pki/dovecot and there are only two in the default
 letsencrypt style, but the names are slightly different than Dovecot
@@ -197,6 +221,22 @@ instructions specify.
 
 .chain.pem includes the cert, intermediate certs, and CA cert. We no longer
 use a separate setting for the CAcert.
+
+##### SSL for Web
+
+The SSL certificates for HTTPS are put on an Amazon Application Load
+Balancer (ELB). These certificates come from [AWS Certificate Manager].
+If you generate new ones via this CloudFormation stack, template execution
+will pause in the middle, while you validate the new certificates (which
+can be done either by email or DNS). By default, new ones are **not**
+generated. The reason for this is that you can only have one certificate
+for the load balancer, which covers all host names you want to secure,
+and if you're using [CloudFront], you **must** generate or import the
+certificate in the US East (N. Virginia) Region (us-east-1). If you're
+not going to use this for general purposes (i.e., you're going to put
+nothing other than the phpMyAdmin servers in the Application Subnet)
+_or_ if you're running this in us-east-1, fell free to generate new
+certificates.
 
 #### Session Cache
 
@@ -458,3 +498,10 @@ Use ACM to request a certificate or import a certificate into ACM. To use an ACM
 [AWS VPC subnetting]:https://docs.aws.amazon.com/vpc/latest/userguide/working-with-vpcs.html
 [AWS KMS Best Practices]:https://d0.awsstatic.com/whitepapers/aws-kms-best-practices.pdf
 [t2vt3]:https://www.cloudsqueeze.ai/amazons-t3-who-should-use-it-when-how-and-the-why/index.html
+[Apache]:https://httpd.apache.org
+[WordPress]:https://wordpress.org
+[Roundcube]:https://roundcube.net
+[phpMyAdmin]:https://www.phpmyadmin.net
+[Let's Encrypt]:https://letsencrypt.org
+[GetSSL]:https://github.com/srvrco/getssl
+[Route53]:https://aws.amazon.com/route53/

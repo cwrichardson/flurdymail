@@ -106,6 +106,22 @@ Resources:
       VpcId:
         !Ref Vpc
 
+  PublicAlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ALB
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      VpcId:
+        !Ref Vpc       
+
   NatSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -225,3 +241,6 @@ Outputs:
   NatSecurityGroup:
     Description: Security group for NAT instances
     Value: !Ref NatSecurityGroup
+  PublicAlbSecurityGroup:
+    Description: Security group for the public load balancer
+    Value: !Ref PublicAlbSecurityGroup

@@ -77,6 +77,11 @@ Metadata:
           - BastionEnvironmentVariables
       -
         Label:
+          default: Public Application Load Balancer Configuration
+        Parameters:
+          - PublicAlbAcmCertificate
+      -
+        Label:
           default: NAT Configuration
         Parameters:
           - NatInstanceType
@@ -147,6 +152,8 @@ Metadata:
         default: Instance Type
       NumberOfAZs:
         default: Number of Availability Zones
+      PublicAlbAcmCertificate:
+        default: ALB Certificate ARN
       PublicSubnet1Cidr:
         default: Public Subnet 1
       PublicSubnet2Cidr:
@@ -400,6 +407,15 @@ Parameters:
     Description: Number of Availability Zones to use in the VPC. Currently
       must be exactly 2.
     Type: Number
+  PublicAlbAcmCertificate:
+    AllowedPattern: ^$|(arn:aws:acm:)([a-z0-9/:-])*([a-z0-9])$
+    Description: "[Optional] The AWS Certification Manager certificate ARN
+      for the ALB certificate - this certificate should be created in the
+      region you wish to run the ALB and must reference the domain
+      names you wish to load balance. If you're using phpMyAdmin and www,
+      for example, it should include both of those fully qualified
+      domains. It is not used for termination of mail TLS connections."
+    Type: String
   PublicSubnet1Cidr:
     AllowedPattern: '((\d{1,3})\.){3}\d{1,3}/(1[6-9]|2[0-8])'
     ConstraintDescription: CIDR block parameter must be in the form
@@ -464,7 +480,7 @@ Parameters:
     Type: String
 
 Resources:
-  newvpc:
+  myvpc:
     Type: AWS::CloudFormation::Stack
     Properties:
       Parameters:
@@ -496,7 +512,7 @@ Resources:
           - aws-mirovoy-ref-arch-01-newvpc.yaml
 
   securitygroups:
-    DependsOn: newvpc
+    DependsOn: myvpc
     Type: AWS::CloudFormation::Stack
     Properties:
       Parameters:
@@ -509,7 +525,7 @@ Resources:
         CreateMailSecGroup:
           !Ref CreateMailSecGroup
         Vpc:
-          !GetAtt [newvpc, Outputs.Vpc]
+          !GetAtt [myvpc, Outputs.Vpc]
       TemplateURL: !Join
         - ''
         - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
@@ -552,7 +568,7 @@ Resources:
         SkelFileDir:
           !Ref SkelFileDir
         Subnet:
-          !GetAtt [newvpc, Outputs.PublicSubnet]
+          !GetAtt [myvpc, Outputs.PublicSubnet]
       TemplateURL: !Join
         - ''
         - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
@@ -573,7 +589,7 @@ Resources:
         AlternativeInitializationScript:
           !Ref AlternativeNatInitializationScript
         AppSubnet:
-          !GetAtt [newvpc, Outputs.AppSubnet]
+          !GetAtt [myvpc, Outputs.AppSubnet]
         NatAMIOS:
           !Ref AMIOS
         NatInstanceType:
@@ -589,7 +605,7 @@ Resources:
         NumberOfAZs:
           !Ref NumberOfAZs
         PublicSubnet:
-          !GetAtt [newvpc, Outputs.PublicSubnet]
+          !GetAtt [myvpc, Outputs.PublicSubnet]
         S3KeyPrefix:
           !Ref S3NatKeyPrefix
         SkelFileDir:
@@ -599,6 +615,27 @@ Resources:
         - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
           - mirovoy-refarch/infrastructure/latest/
           - aws-mirovoy-ref-arch-03-nat.yaml
+
+  publicalb:
+    DependsOn: securitygroups
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        PublicAlbAcmCertificate:
+          !Ref PublicAlbAcmCertificate
+        PublicAlbSecurityGroup:
+          !GetAtt [securitygroups, Outputs.PublicAlbSecurityGroup]
+        NumberOfSubnets:
+          !Ref NumberOfAZs
+        Subnet:
+          !GetAtt [myvpc, Outputs.PublicSubnet]
+        Vpc:
+          !GetAtt [myvpc, Outputs.Vpc]
+      TemplateURL: !Join
+        - ''
+        - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
+          - mirovoy-refarch/infrastructure/latest/
+          - aws-mirovoy-ref-arch-03-publicalb.yaml
 
   rds:
     DependsOn: securitygroups
@@ -624,7 +661,7 @@ Resources:
         NumberOfSubnets:
           !Ref NumberOfAZs
         Subnet:
-          !GetAtt [newvpc, Outputs.DataSubnet]
+          !GetAtt [myvpc, Outputs.DataSubnet]
       TemplateURL: !Join
         - ''
         - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
