@@ -99,6 +99,7 @@ Resources:
       LoadBalancerArn: !Ref PublicApplicationLoadBalancer
       Port: 80
       Protocol: HTTP
+
   PublicAlbListenerSslCertificate:
     Condition: SslCertificate
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -111,6 +112,7 @@ Resources:
       LoadBalancerArn: !Ref PublicApplicationLoadBalancer
       Port: 443
       Protocol: HTTPS
+
   PublicApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
@@ -127,6 +129,7 @@ Resources:
       Tags:
         - Key: Name
           Value: !Join ['', ['Public ALB / ', !Ref 'AWS::StackName']]
+
   PublicAlbTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
