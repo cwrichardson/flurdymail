@@ -117,7 +117,7 @@ Metadata:
       BastionInstanceType:
         default: Instance Type
       CFAssetsBucket:
-        default: Mirovvoy CloudFront Assets S3 bucket name
+        default: Mirovvoy CloudFormation Assets S3 bucket name
       DatabaseEncryptedBoolean:
         default: Encrypted DB Cluster
       DatabaseCmk:
@@ -159,9 +159,9 @@ Metadata:
       PublicSubnet2Cidr:
         default: Public Subnet 2
       S3BastionKeyPrefix:
-        default: Mirovoy CloudFront Assets Bastion S3 bucket key prefix
+        default: Mirovoy CloudFormation Assets Bastion S3 bucket key prefix
       S3NatKeyPrefix:
-        default: Mirovoy CloudFront Assets Bastion S3 bucket key prefix
+        default: Mirovoy CloudFormation Assets NAT S3 bucket key prefix
       SshAccessCidr:
         default: SSH Access From
       SkelFileDir:
@@ -267,9 +267,9 @@ Parameters:
     Type: String
   CFAssetsBucket:
     AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
-    ConstraintDescription: 'Mirovoy CloudFront Assets Bucket name can include
-      numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot
-      start or end with a hyphen (-).'
+    ConstraintDescription: 'Mirovoy CloudFormation Assets Bucket name can
+      include numbers, lowercase letters, uppercase letters, and hyphens (-).
+      It cannot start or end with a hyphen (-).'
     Default: "mirovoy-cf-assets"
     Description: 'S3 bucket name for the CloudFormation assets. If you look
       at an S3 URL,
@@ -432,7 +432,7 @@ Parameters:
     Type: String
   S3BastionKeyPrefix:
     AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
-    ConstraintDescription: 'Mirovoy CloudFront Assets S3 bucket  key prefix
+    ConstraintDescription: 'Mirovoy CloudFormation Assets S3 bucket key prefix
       can include numbers, lowercase letters, uppercase letters, hyphens (-),
       and forward slash (/). The prefix should end with a forward slash (/).'
     Default: "bastion/"
@@ -442,7 +442,7 @@ Parameters:
     Type: String
   S3NatKeyPrefix:
     AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
-    ConstraintDescription: 'CloudFront Assets S3 bucket key prefix
+    ConstraintDescription: 'CloudFormation Assets S3 bucket key prefix
       can include numbers, lowercase letters, uppercase letters, hyphens (-),
       and forward slash (/). The prefix should end with a forward slash (/).
       For example mybucket.s3-eu-central-1.amazonaws.com/<prefix/>.'
