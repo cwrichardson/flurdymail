@@ -1,0 +1,406 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: 'Mirovoy Reference Architecture - phpMyAdmin Auto-Scaling Group -
+    This template creates a phpMyAdmin auto-scaling group in the Mirovoy
+    VPC application subnets. By default the auto-scaling configuration is
+    desired: 0, min: 0, max:1. Access to the server is via HTTPS through
+    the Application Load Balancer.'
+
+Metadata:
+  Authors:
+    Description: Chris Richardson (cwr@mirovoysales.com)
+
+  License:
+    Description: 'Copyright 2018-2019 Mirovoy Sales, s.r.o. and its affiliates.
+      All Rights Reserved.
+      SPDX-License-Identifier: MIT-0'
+
+  History:
+    Description: This work is based off of the aws-refarch-wordpress
+      templates originally authored by Darryl Osborne (darrylo@amazon.com)
+
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: phpMyAdmin Configuration
+        Parameters:
+          - AdminUser
+          - AdminPubKey
+          - phpAMIOS
+          - phpInstanceType
+          - phpSecurityGroup
+          - PublicAlbTargetGroupArn
+          - EC2KeyName
+          - NumberOfSubnets
+          - Subnet
+      - Label:
+          default: AWS S3 Configuration
+        Parameters:
+          - CFAssetsBucket
+          - S3KeyPrefix
+          - SkelFileDir
+      - Label:
+          default: Overrides
+        Parameters:
+          - AlternativeIAMRole
+          - AlternativeInitializationScript
+          - EnvironmentVariables
+
+    ParameterLabels:
+      AdminUser:
+        default: Alternative superuser account to create
+      AdminPubKey:
+        default: SSH public key for the AdminUser
+      phpAMIOS:
+        default: AMI ID for phpMyAdmin Servers
+      phpInstanceType:
+        default: Instance Type
+      phpSecurityGroup:
+        default: phpMyAdmin Security Group
+      EC2KeyName:
+        default: Existing Key Pair
+      NumberOfSubnets:
+        default: Number of subnets
+      PublicAlbTargetGroupArn:
+        default: Public Alb Target Group Arn
+      Subnet:
+        default: Subnets
+
+Parameters:
+  AdminUser:
+    AllowedPattern: "^[a-z][-a-z0-9]*$|^$"
+    ConstraintDescription: "Must be a valid username for the OS to be used.
+      For sanity's sake, confining this to starting with a lower-case letter,
+      followed by an arbitrary number of lower-case letters, numbers, and the
+      dash character ('-')."
+    Description: 'An alternate account to be created on phpMyAdmin instances 
+      with superuser permissions.'
+    Type: String
+  AdminPubKey:
+    Default: ''
+    Description: 'The public key text to be installed in the authorized_hosts
+      file for the admin user. Will also be installed as an accepted key for
+      the default admin user.'
+    Type: String
+  AlternativeIAMRole:
+    Description: 'Specify an existing IAM Role name to attach to the server.
+      If left blank, a new role will be created.'
+    Default: ''
+    Type: String
+  AlternativeInitializationScript:
+    AllowedPattern: "^http.*|^$"
+    ConstraintDescription: 'URL must begin with "http".'
+    Description: 'Specify an alternative initialization script to run during
+      setup.'
+    Default: ""
+    Type: String
+  phpSecurityGroup:
+    Description: Select the phpMyAdmin security group.
+    Type: AWS::EC2::SecurityGroup::Id
+  CFAssetsBucket:
+    AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
+    ConstraintDescription: 'Mirovoy CloudFront Assets Bucket name can include
+      numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot
+      start or end with a hyphen (-).'
+    Default: "mirovoy-cf-assets"
+    Description: 'S3 bucket name for the Mirovoy CloudFormation assets.'
+    Type: String
+  EC2KeyName:
+    Description: Name of an EC2 KeyPair. Your phpMyAdmin instances will launch
+      with this KeyPair.
+    Type: AWS::EC2::KeyPair::KeyName
+  EnvironmentVariables:
+    Description: 'Specify a comma separated list of environment variables for
+      use in bootstrapping by the alternative initialization script. Variables
+      must be in the format KEY=VALUE. VALUE cannot contain commas.'
+    Default: ''
+    Type: String
+  NumberOfSubnets:
+    AllowedValues:
+      - 2
+    Description: Number of subnets. This must match your selections in the
+      list of subnets below. You should select all Public subnets.
+    Default: 2
+    Type: String
+  phpAMIOS:
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+    Description: AMI ID to use for the mail servers
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+  phpInstanceType:
+    AllowedValues:
+      - t2.nano
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t3.nano
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - m3.medium
+      - c5.large
+    ConstraintDescription: Must be a valid Amazon EC2 instance type.
+    Default: t3.nano
+    Description: phpMyAdmin EC2 instance type.
+    Type: String
+  PublicAlbTargetGroupArn:
+    Description: The public application load balancer target group arn.
+    Type: String
+  S3KeyPrefix:
+    AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
+    ConstraintDescription: 'Mirovoy CloudFront Assets S3 bucket  key prefix
+      can include numbers, lowercase letters, uppercase letters, hyphens (-),
+      and forward slash (/). The prefix should end with a forward slash (/).'
+    Default: "phpmyadmin/"
+    Description: 'S3 key prefix for the Mirovoy CloudFormation assets. This
+      should be the top-level directory path inside the bucket, leading to the
+      assets for this template (e.g., scripts directory, etc... are located)'
+    Type: String
+  SkelFileDir:
+    Default: "var/skel/"
+    Description: "Path under S3 prefix for shell configuration file to put in
+      the alternate admin user's home dir, via /etc/skel/. Should end in a
+      slash."
+    Type: String
+  Subnet:
+    Description: Select existing subnets. The number selected must match the
+      number of subnets above. Subnets selected must be in separate AZs. You
+      should select all Public subnets.
+    Type: List<AWS::EC2::Subnet::Id>
+
+Conditions:
+  CreateAltAdmin:
+    !Not [!Equals [!Ref AdminUser, '']]
+  CreateIAMRole:
+    !Equals [!Ref AlternativeIAMRole, '']
+  NumberOfSubnets1:
+    !Equals [1, !Ref NumberOfSubnets]
+  NumberOfSubnets2:
+    !Equals [2, !Ref NumberOfSubnets]
+  Subnet0: !Or
+    - !Condition NumberOfSubnets1
+    - !Condition NumberOfSubnets2
+  Subnet1: !Condition NumberOfSubnets2
+  UseAlternativeInitialization: !Not [
+    !Equals [!Ref AlternativeInitializationScript, '']]
+
+Resources:
+  phpAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      Cooldown: 60
+      HealthCheckGracePeriod: 120
+      HealthCheckType: EC2
+      LaunchConfigurationName: !Ref phpLaunchConfiguration
+      MaxSize: 1
+      MinSize: 0
+      Tags:
+        - Key: Name
+          Value: !Join ['', ['phpMyAdmin / ', !Ref 'AWS::StackName']]
+          PropagateAtLaunch: true
+      TargetGroupARNs:
+        - !Ref PublicAlbTargetGroupArn
+      VPCZoneIdentifier:
+        !If [NumberOfSubnets1,
+             [!Select [0, !Ref Subnet]],
+             [!Select [0, !Ref Subnet], !Select [1, !Ref Subnet]]
+        ]
+
+  phpHostRole:
+    Condition: CreateIAMRole
+    Type: AWS::IAM::Role
+    Properties:
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: logs
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource:
+                  - arn:aws:logs:*:*:*
+
+  phpHostPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "phpPolicy"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: "Allow"
+            Action:
+              - "s3:GetObject"
+            Resource:
+              !Sub "arn:aws:s3:::${CFAssetsBucket}/${S3KeyPrefix}*"
+          -
+            Effect: "Allow"
+            Action:
+              - "ec2:AssociateAddress"
+              - "ec2:DescribeAddress"
+            Resource: "*"
+      Roles:
+        -
+          !If [CreateIAMRole, !Ref phpHostRole, !Ref AlternativeIAMRole]
+
+  phpHostProfile:
+    DependsOn: phpHostPolicy
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !If [CreateIAMRole, !Ref phpHostRole, !Ref AlternativeIAMRole]
+
+  phpLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Metadata:
+      AWS::CloudFormation::Authentication:
+        S3AccessCreds:
+          type: "S3"
+          roleName: !If [
+            CreateIAMRole, !Ref phpHostRole, !Ref AlternativeIAMRole]
+          buckets: [!Ref CFAssetsBucket]
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            yum:
+              "ksh": []
+              "httpd": []
+          files:
+            /tmp/php_bootstrap.sh:
+              source: !If [
+                UseAlternativeInitialization,
+                !Ref AlternativeInitializationScript,
+                #
+                # Added AWS::Region to the URL, which deviates from the
+                # QuickStart example, because without it, it falls back to
+                # using an older authentication mechansim, which isn't
+                # supported in all regions.
+                #
+                !Join ['',
+                       [!Sub "https://${CFAssetsBucket}.s3-",
+                        !Sub "${AWS::Region}.amazonaws.com/${S3KeyPrefix}",
+                        "scripts/php_bootstrap.sh"
+                       ]
+                ]
+              ]
+              mode: "000550"
+              owner: "root"
+              group: "root"
+              authenticaiton: S3AccessCreds
+            /tmp/profile:
+              source: !Join
+                - ''
+                - - !Sub "https://${CFAssetsBucket}.s3-${AWS::Region}"
+                  - !Sub ".amazonaws.com/${S3KeyPrefix}${SkelFileDir}profile"
+              mode: "000600"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
+            /tmp/shrc:
+              source: !Join
+                - ''
+                - - !Sub "https://${CFAssetsBucket}.s3-${AWS::Region}"
+                  - !Sub ".amazonaws.com/${S3KeyPrefix}${SkelFileDir}shrc"
+              mode: "000600"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
+            /tmp/adminpubkey.pub:
+              content: !If
+                - CreateAltAdmin
+                - !Ref AdminPubKey
+                - " "
+              mode: "000644"
+              owner: "root"
+              group: "root"
+          commands:
+            01_bootstrap:
+              command: !If
+                - CreateAltAdmin
+                - !Join ["", [
+                    "./tmp/php_bootstrap.sh",
+                    " --admin-user ",
+                    !Ref AdminUser
+                  ]]
+                - "./tmp/php_bootstrap.sh"
+            # we need EPEL to get phpmyadmin
+            02_make_epel_available:
+              command: amazon-linux-extras enable epel
+              test: "! yum repolist enabled | grep epel"
+            # I have no idea what this does, but after enabling epel in
+            # Amazon Linux Extras, it's the recommended way to actually
+            # install epel
+            02_clean_yum_metadata:
+              command: yum clean metadata
+              test: "yum repolist enabled | grep amzn2extra-epel"
+            03_install_epel:
+              command: yum install -y epel-release
+              test: "! yum repolist enabled | grep ^\\*epel"
+            04_install_phpMyAdmin:
+              command: yum install -y phpMyAdmin
+              test: "! yum list installed | grep phpMyAdmin"
+
+    Properties:
+      IamInstanceProfile: !Ref phpHostProfile
+      ImageId: !Ref phpAMIOS
+      InstanceMonitoring: true
+      InstanceType: !Ref phpInstanceType
+      KeyName: !Ref EC2KeyName
+      SecurityGroups:
+        - !Ref phpSecurityGroup
+      UserData: !Base64
+        Fn::Join:
+          - ''
+          - - |
+              #!/bin/bash -x
+              #
+              # update packages
+              yum update -y
+              # setup environment
+            - 'for e in $(echo "'
+            - !Ref EnvironmentVariables
+            - '" | tr "," " "); do'
+            - |2
+
+                  export $e
+              done
+              export PATH=$PATH:/usr/local/bin
+              # install AWS CLI
+              which pip &> /dev/null
+              if [ ! $? ] ; then
+                  echo "PIP NOT INSTALLED"
+            - '    $(yum install -y epel-release; yum install -y python-pip) '
+            - '&& echo "PIP INSTALLED"'
+            - |2
+
+              fi
+              pip install --upgrade pip &> /dev/null
+              pip install awscli --ignore-installed six &> /dev/null
+            - 'easy_install '
+            - 'https://s3.amazonaws.com/cloudformation-examples/'
+            - 'aws-cfn-bootstrap-latest.tar.gz'
+            - |2
+
+              # run cfn-init
+            - '/opt/aws/bin/cfn-init -v --stack '
+            - !Ref 'AWS::StackName'
+            - '		--resource phpLaunchConfiguration '
+            - '		--region '
+            - !Ref 'AWS::Region'
+            - |+

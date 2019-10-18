@@ -106,6 +106,22 @@ Resources:
       VpcId:
         !Ref Vpc
 
+  phpMyAdminSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for phpMyAdmin instances
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref PublicAlbSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+      VpcId:
+        !Ref Vpc
+
   PublicAlbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -241,6 +257,8 @@ Outputs:
   NatSecurityGroup:
     Description: Security group for NAT instances
     Value: !Ref NatSecurityGroup
+  phpMyAdminSecurityGroup:
+    Value: !Ref phpMyAdminSecurityGroup
   PublicAlbSecurityGroup:
     Description: Security group for the public load balancer
     Value: !Ref PublicAlbSecurityGroup
