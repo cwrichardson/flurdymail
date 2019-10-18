@@ -91,6 +91,7 @@ Conditions:
 
 Resources:
   PublicAlbListenerNoSslCertificate:
+    Condition: NoSslCertificate
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
@@ -103,17 +104,19 @@ Resources:
   PublicAlbListenerHttpRedirect:
     Condition: SslCertificate
     Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn:
+      - PublicApplicationLoadBalancer
     Properties:
       DefaultActions:
         - Order: 100
-        - RedirectConfig:
+          RedirectConfig:
             Host: "#{host}"
             Path: "/#{path}"
             Port: 443
             Protocol: "HTTPS"
             Query: "#{query}"
-            Status_Code: HTTP_302
-        - Type: redirect
+            StatusCode: HTTP_302
+          Type: redirect
       LoadBalancerArn: !Ref PublicApplicationLoadBalancer
       Port: 80
       Protocol: HTTP
