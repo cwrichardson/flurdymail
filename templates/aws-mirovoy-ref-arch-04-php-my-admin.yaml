@@ -30,10 +30,15 @@ Metadata:
           - phpAMIOS
           - phpInstanceType
           - phpSecurityGroup
-          - PublicAlbTargetGroupArn
+          - PublicAlbListenerArn
           - EC2KeyName
           - NumberOfSubnets
           - Subnet
+      - Label:
+          default: Application Load Balancer Configuration
+        Parameters:
+          - DnsName
+          - Vpc
       - Label:
           default: AWS S3 Configuration
         Parameters:
@@ -52,6 +57,10 @@ Metadata:
         default: Alternative superuser account to create
       AdminPubKey:
         default: SSH public key for the AdminUser
+      DnsName:
+        default: 'The fully-qualified domain name for the phpMyAdmin server
+	  (e.g., phpmyadmin.example.com).  NB: This should be assigned to the
+	  application load balancer manually.'
       phpAMIOS:
         default: AMI ID for phpMyAdmin Servers
       phpInstanceType:
@@ -62,10 +71,12 @@ Metadata:
         default: Existing Key Pair
       NumberOfSubnets:
         default: Number of subnets
-      PublicAlbTargetGroupArn:
-        default: Public Alb Target Group Arn
+      PublicAlbListenerArn:
+        default: Public Alb Listener Arn
       Subnet:
         default: Subnets
+      Vpc:
+        default: Vpc Id
 
 Parameters:
   AdminUser:
@@ -95,9 +106,6 @@ Parameters:
       setup.'
     Default: ""
     Type: String
-  phpSecurityGroup:
-    Description: Select the phpMyAdmin security group.
-    Type: AWS::EC2::SecurityGroup::Id
   CFAssetsBucket:
     AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
     ConstraintDescription: 'Mirovoy CloudFront Assets Bucket name can include
@@ -105,6 +113,10 @@ Parameters:
       start or end with a hyphen (-).'
     Default: "mirovoy-cf-assets"
     Description: 'S3 bucket name for the Mirovoy CloudFormation assets.'
+    Type: String
+  DnsName:
+    Default: ""
+    Description: 'The FQDN for phpMyAdmin (e.g., phpmyadmin.example.com)'
     Type: String
   EC2KeyName:
     Description: Name of an EC2 KeyPair. Your phpMyAdmin instances will launch
@@ -120,7 +132,7 @@ Parameters:
     AllowedValues:
       - 2
     Description: Number of subnets. This must match your selections in the
-      list of subnets below. You should select all Public subnets.
+      list of subnets below. You should select all Application subnets.
     Default: 2
     Type: String
   phpAMIOS:
@@ -143,8 +155,11 @@ Parameters:
     Default: t3.nano
     Description: phpMyAdmin EC2 instance type.
     Type: String
-  PublicAlbTargetGroupArn:
-    Description: The public application load balancer target group arn.
+  phpSecurityGroup:
+    Description: Select the phpMyAdmin security group.
+    Type: AWS::EC2::SecurityGroup::Id
+  PublicAlbListenerArn:
+    Description: "The public application load balancer listener's arn."
     Type: String
   S3KeyPrefix:
     AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
@@ -165,8 +180,12 @@ Parameters:
   Subnet:
     Description: Select existing subnets. The number selected must match the
       number of subnets above. Subnets selected must be in separate AZs. You
-      should select all Public subnets.
+      should select all Application subnets.
     Type: List<AWS::EC2::Subnet::Id>
+  Vpc:
+    AllowedPattern: ^(vpc-)([a-z0-9]{8}|[a-z0-9]{17})$
+    Description: The Vpc Id of an existing Vpc.
+    Type: AWS::EC2::VPC::Id
 
 Conditions:
   CreateAltAdmin:
@@ -185,6 +204,28 @@ Conditions:
     !Equals [!Ref AlternativeInitializationScript, '']]
 
 Resources:
+  phpMyAdminAlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: phpMyAdminTargets
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      VpcId: !Ref Vpc
+
+  phpMyAdminAlbListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref phpMyAdminAlbTargetGroup
+          Type: forward
+      Conditions:
+        - Field: host-header
+          Values:
+            - !Ref DnsName
+      ListenerArn: !Ref PublicAlbListenerArn
+      Priority: 100
+
   phpAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
@@ -199,7 +240,7 @@ Resources:
           Value: !Join ['', ['phpMyAdmin / ', !Ref 'AWS::StackName']]
           PropagateAtLaunch: true
       TargetGroupARNs:
-        - !Ref PublicAlbTargetGroupArn
+        - !Ref phpMyAdminAlbTargetGroup
       VPCZoneIdentifier:
         !If [NumberOfSubnets1,
              [!Select [0, !Ref Subnet]],
