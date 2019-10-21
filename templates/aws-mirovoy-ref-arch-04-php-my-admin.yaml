@@ -208,8 +208,8 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Name: phpMyAdminTargets
-      Port: 80
-      Protocol: HTTP
+      Port: 443
+      Protocol: HTTPS
       TargetType: instance
       VpcId: !Ref Vpc
 
