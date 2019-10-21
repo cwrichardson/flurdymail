@@ -322,6 +322,7 @@ Resources:
             yum:
               "ksh": []
               "httpd": []
+              "mod_ssl": []
           files:
             /tmp/php_bootstrap.sh:
               source: !If [
@@ -362,6 +363,14 @@ Resources:
               owner: "root"
               group: "root"
               authentication: S3AccessCreds
+            /tmp/phpmyadmin.tgz:
+              source: !Join
+                - ''
+                - - "https://www.phpmyadmin.net/downloads/"
+                  - "phpMyAdmin-latest-all-languages.tar.gz"
+              mode: "000600"
+              owner: "root"
+              group: "root"
             /tmp/adminpubkey.pub:
               content: !If
                 - CreateAltAdmin
@@ -393,9 +402,40 @@ Resources:
             03_install_epel:
               command: yum install -y epel-release
               test: "! yum repolist enabled | grep ^\\*epel"
-            04_install_phpMyAdmin:
-              command: yum install -y phpMyAdmin
-              test: "! yum list installed | grep phpMyAdmin"
+            04_enable_php72:
+              command: amazon-linux-extras enable php7.2
+              test: "! yum list installed | grep php7\\.2"
+            05_install_php72:
+              command: yum install -y php
+              test: "! yum list installed | grep php7\\.2"
+            06_install_php_mbsting:
+              command: yum install -y php-mbstring
+              test: "! yum installed php-mbstring"
+            07_install_mysqli::
+              command: yum install -y php-mysqli
+              #test: "! yum installed php-mbstring"
+            08_mkdir_phpmyadmin:
+              command: mkdir /var/www/html/phpMyAdmin
+              test: "[ ! -d /var/www/html/phpMyAdmin ]"
+            09_install_phpmyadmin:
+              command: !Join [" ",
+                              ["tar -zxvf /tmp/phpmyadmin.tgz -C phpMyAdmin",
+                               "--strip-components 1"]]
+              cwd: /var/www/html/
+              test: "[ -d /var/www/html/phpMyAdmin -a -f /tmp/phpmyadmin.tgz ]"
+            10_touch_index:
+              command: touch /var/www/html/index.html
+              test: "[ ! -e /var/www/html/index.html ]"
+          services:
+            sysvinit:
+              httpd:
+                enabled: true
+                ensureRunning: true
+                files:
+                  - "/etc/httpd/conf/httpd.conf"
+                packages:
+                  yum:
+                    - "httpd"
 
     Properties:
       IamInstanceProfile: !Ref phpHostProfile
