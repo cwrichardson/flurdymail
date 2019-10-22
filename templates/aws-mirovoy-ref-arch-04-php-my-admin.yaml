@@ -62,12 +62,16 @@ Metadata:
         default: Alternative superuser account to create
       AdminPubKey:
         default: SSH public key for the AdminUser
+      AlternativeIAMRole:
+        default: Alternative IAM Role
+      AlternativeInitializationScript:
+        default: Alternative Initialization Script
       BlowfishSecret:
         default: Blowfish Secret
       DnsName:
-        default: 'The fully-qualified domain name for the phpMyAdmin server
-	  (e.g., phpmyadmin.example.com).  NB: This should be assigned to the
-	  application load balancer manually.'
+        default: 'The FQDN for phpMyAdmin (e.g., phpmyadmin.example.com)'
+      EnvironmentVariables:
+        default: Environment Variables
       phpAMIOS:
         default: AMI ID for phpMyAdmin Servers
       phpInstanceType:
@@ -138,7 +142,10 @@ Parameters:
     Type: String
   DnsName:
     Default: ""
-    Description: 'The FQDN for phpMyAdmin (e.g., phpmyadmin.example.com)'
+    Description: 'The fully-qualified domain name for the phpMyAdmin server
+      (e.g., phpmyadmin.example.com).  NB: This should be assigned to the
+      application load balancer manually. It is used here to register as
+      a target for the loadbalancer.'
     Type: String
   EC2KeyName:
     Description: Name of an EC2 KeyPair. Your phpMyAdmin instances will launch
