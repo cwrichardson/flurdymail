@@ -30,6 +30,8 @@ Metadata:
           - NumberOfAZs
           - AvailabilityZones
           - DatabaseMasterPassword
+          - PublicAlbAcmCertificate
+          - phpDnsName
       -
         Label:
           default: General Parameters
@@ -77,11 +79,6 @@ Metadata:
           - BastionEnvironmentVariables
       -
         Label:
-          default: Public Application Load Balancer Configuration
-        Parameters:
-          - PublicAlbAcmCertificate
-      -
-        Label:
           default: NAT Configuration
         Parameters:
           - NatInstanceType
@@ -90,11 +87,21 @@ Metadata:
           - AlternativeNatInitializationScript
       -
         Label:
+          default: phpmyadmin Configuration
+        Parameters:
+          - BlowfishSecret
+          - phpEnvironmentVariables
+          - phpInstanceType
+          - AlternativePhpIAMRole
+          - AlternativePhpInitializationScript
+      -
+        Label:
           default: AWS S3 Configuration
         Parameters:
           - CFAssetsBucket
           - S3BastionKeyPrefix
           - S3NatKeyPrefix
+          - S3PhpKeyPrefix
           - SkelFileDir
 
     ParameterLabels:
@@ -110,12 +117,18 @@ Metadata:
         default: Alternative NAT IAM Role
       AlternativeNatInitializationScript:
         default: Alternative NAT Initialization Script
+      AlternativePhpIAMRole:
+        default: Alternative phpmyadmin IAM Role
+      AlternativePhpInitializationScript:
+        default: Alternative phpmyadmin Initialization Script
       AMIOS:
         default: AMI ID for Servers
       BastionEnvironmentVariables:
         default: Environment Variables
       BastionInstanceType:
         default: Instance Type
+      BlowfishSecret:
+        default: Blowfish Secret
       CFAssetsBucket:
         default: Mirovvoy CloudFormation Assets S3 bucket name
       DatabaseEncryptedBoolean:
@@ -152,6 +165,12 @@ Metadata:
         default: Instance Type
       NumberOfAZs:
         default: Number of Availability Zones
+      phpDnsName:
+        default: 'The FQDN for phpMyAdmin (e.g., phpmyadmin.example.com)'
+      phpEnvironmentVariables:
+        default: phpmyadmin Environment Variables
+      phpInstanceType:
+        default: Instance Type
       PublicAlbAcmCertificate:
         default: ALB Certificate ARN
       PublicSubnet1Cidr:
@@ -162,6 +181,8 @@ Metadata:
         default: Mirovoy CloudFormation Assets Bastion S3 bucket key prefix
       S3NatKeyPrefix:
         default: Mirovoy CloudFormation Assets NAT S3 bucket key prefix
+      S3PhpKeyPrefix:
+        default: Mirovoy CloudFormation Assets PHP S3 bucket key prefix
       SshAccessCidr:
         default: SSH Access From
       SkelFileDir:
@@ -206,6 +227,20 @@ Parameters:
     Default: ''
     Type: String
   AlternativeNatInitializationScript:
+    AllowedPattern: "^http.*|^$"
+    ConstraintDescription: 'URL must begin with "http".'
+    Description: 'URL for an alternative initialization script to run during
+      setup. By default, during startup the instances will look in the S3
+      configuration below and run .../<prefix/>scripts/nat_bootstrap.sh.
+      This should be the full URL to an alternative script.'
+    Default: ""
+    Type: String
+  AlternativePhpIAMRole:
+    Description: 'Specify an existing IAM Role name to attach to the phpmyadmin
+      instances.  If left blank, a new role will be created.'
+    Default: ''
+    Type: String
+  AlternativePhpInitializationScript:
     AllowedPattern: "^http.*|^$"
     ConstraintDescription: 'URL must begin with "http".'
     Description: 'URL for an alternative initialization script to run during
@@ -264,6 +299,19 @@ Parameters:
     ConstraintDescription: Must be a valid Amazon EC2 instance type.
     Default: t3.nano
     Description: Bastion EC2 instance type.
+    Type: String
+  BlowfishSecret:
+    Default: ''
+    Description: 'phpmyadmin uses this to encrypt the password
+      stored in the cookie. From the docs: The “cookie” auth_type
+      uses AES algorithm to encrypt the password. If you are using
+      the “cookie” auth_type, enter here a random passphrase of
+      your choice. It will be used internally by the AES algorithm:
+      you won’t be prompted for this passphrase.
+
+      The secret should be 32 characters long. Using shorter will lead
+      to weaker security of encrypted cookies, using longer will cause
+      no harm.'
     Type: String
   CFAssetsBucket:
     AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
@@ -407,6 +455,36 @@ Parameters:
     Description: Number of Availability Zones to use in the VPC. Currently
       must be exactly 2.
     Type: Number
+  phpDnsName:
+    Default: ""
+    Description: 'The fully-qualified domain name for the phpMyAdmin server
+      (e.g., phpmyadmin.example.com).  NB: This should be assigned to the
+      application load balancer manually. It is used here to register as
+      a target for the loadbalancer.'
+    Type: String
+  phpEnvironmentVariables:
+    Description: 'Specify a comma separated list of environment variables
+      for use in bootstrapping by the alternative initialization script.
+      Variables must be in the format KEY=VALUE. VALUE cannot contain
+      commas.'
+    Default: ''
+    Type: String
+  phpInstanceType:
+    AllowedValues:
+      - t2.nano
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t3.nano
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - m3.medium
+      - c5.large
+    ConstraintDescription: Must be a valid Amazon EC2 instance type.
+    Default: t3.nano
+    Description: phpMyAdmin EC2 instance type.
+    Type: String
   PublicAlbAcmCertificate:
     AllowedPattern: ^$|(arn:aws:acm:)([a-z0-9/:-])*([a-z0-9])$
     Description: "[Optional] The AWS Certification Manager certificate ARN
@@ -447,6 +525,17 @@ Parameters:
       and forward slash (/). The prefix should end with a forward slash (/).
       For example mybucket.s3-eu-central-1.amazonaws.com/<prefix/>.'
     Default: "nat/"
+    Description: 'S3 key prefix for the CloudFormation assets. This
+      should be the top-level directory path inside the bucket, leading to the
+      assets for this template (e.g., scripts directory, etc... are located)'
+    Type: String
+  S3PhpKeyPrefix:
+    AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
+    ConstraintDescription: 'CloudFormation Assets S3 bucket key prefix
+      can include numbers, lowercase letters, uppercase letters, hyphens (-),
+      and forward slash (/). The prefix should end with a forward slash (/).
+      For example mybucket.s3-eu-central-1.amazonaws.com/<prefix/>.'
+    Default: "phpmyadmin/"
     Description: 'S3 key prefix for the CloudFormation assets. This
       should be the top-level directory path inside the bucket, leading to the
       assets for this template (e.g., scripts directory, etc... are located)'
@@ -510,27 +599,6 @@ Resources:
         - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
           - mirovoy-refarch/infrastructure/latest/
           - aws-mirovoy-ref-arch-01-newvpc.yaml
-
-  securitygroups:
-    DependsOn: myvpc
-    Type: AWS::CloudFormation::Stack
-    Properties:
-      Parameters:
-        AppSubnet1Cidr:
-          !Ref AppSubnet1Cidr
-        AppSubnet2Cidr:
-          !Ref AppSubnet2Cidr
-        SshAccessCidr:
-          !Ref SshAccessCidr
-        CreateMailSecGroup:
-          !Ref CreateMailSecGroup
-        Vpc:
-          !GetAtt [myvpc, Outputs.Vpc]
-      TemplateURL: !Join
-        - ''
-        - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
-          - mirovoy-refarch/infrastructure/latest/
-          - aws-mirovoy-ref-arch-02-securitygroups.yaml
 
   bastion:
     DependsOn: securitygroups
@@ -616,6 +684,55 @@ Resources:
           - mirovoy-refarch/infrastructure/latest/
           - aws-mirovoy-ref-arch-03-nat.yaml
 
+  phpmyadmin:
+    DependsOn: [securitygroups, publicalb, rds]
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        AdminUser:
+          !Ref AdminUser
+        AdminPubKey:
+          !Ref AdminPubKey
+        AlternativeIAMRole:
+          !Ref AlternativePhpIAMRole
+        AlternativeInitializationScript:
+          !Ref AlternativePhpInitializationScript
+        BlowfishSecret:
+          !Ref BlowfishSecret
+        CFAssetsBucket:
+          !Ref CFAssetsBucket
+        DnsName:
+          !Ref phpDnsName
+        EC2KeyName:
+          !Ref EC2KeyName
+        EnvironmentVariables:
+          !Ref phpEnvironmentVariables
+        NumberOfSubnets:
+          !Ref NumberOfAZs
+        phpAMIOS:
+          !Ref AMIOS
+        phpInstanceType:
+          !Ref phpInstanceType
+        phpSecurityGroup:
+          !GetAtt [securitygroups, Outputs.phpMyAdminSecurityGroup]
+        PublicAlbListenerArn:
+          !GetAtt [publicalb, Outputs.PublicAlbHttpsListener]
+        RDSAddress:
+          !GetAtt [rds, Outputs.MasterDatabaseEndpointAddress]
+        S3KeyPrefix:
+          !Ref S3PhpKeyPrefix
+        SkelFileDir:
+          !Ref SkelFileDir
+        Subnet:
+          !GetAtt [myvpc, Outputs.AppSubnet]
+        Vpc:
+          !GetAtt [myvpc, Outputs.Vpc]
+      TemplateURL: !Join
+        - ''
+        - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
+          - mirovoy-refarch/infrastructure/latest/
+          - aws-mirovoy-ref-arch-04-php-my-admin.yaml
+
   publicalb:
     DependsOn: securitygroups
     Type: AWS::CloudFormation::Stack
@@ -667,3 +784,24 @@ Resources:
         - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
           - mirovoy-refarch/infrastructure/latest/
           - aws-mirovoy-ref-arch-03-rds.yaml
+
+  securitygroups:
+    DependsOn: myvpc
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        AppSubnet1Cidr:
+          !Ref AppSubnet1Cidr
+        AppSubnet2Cidr:
+          !Ref AppSubnet2Cidr
+        SshAccessCidr:
+          !Ref SshAccessCidr
+        CreateMailSecGroup:
+          !Ref CreateMailSecGroup
+        Vpc:
+          !GetAtt [myvpc, Outputs.Vpc]
+      TemplateURL: !Join
+        - ''
+        - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
+          - mirovoy-refarch/infrastructure/latest/
+          - aws-mirovoy-ref-arch-02-securitygroups.yaml
