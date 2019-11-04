@@ -1,0 +1,852 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: 'Mirovoy Reference Architecture - Roundcube Auto-Scaling Group -
+    This template creates a Roundcube auto-scaling group in the Mirovoy
+    VPC application subnets. By default the auto-scaling configuration is
+    desired: 1, min: 0, max:1. Access to the server is via HTTPS through
+    the Application Load Balancer.'
+
+Metadata:
+  Authors:
+    Description: Chris Richardson (cwr@mirovoysales.com)
+
+  License:
+    Description: 'Copyright 2018-2019 Mirovoy Sales, s.r.o. and its affiliates.
+      All Rights Reserved.
+      SPDX-License-Identifier: MIT-0'
+
+  History:
+    Description: This work is based off of the aws-refarch-wordpress
+      templates originally authored by Darryl Osborne (darrylo@amazon.com)
+
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Roundcube Configuration
+        Parameters:
+          - DatabaseStackName
+          - RoundcubeDBName
+          - RoundcubeDBUser
+          - RoundcubeDBPass
+          - MailServerPrivateDNS
+          - Skin
+          - UseLDAP
+      - Label:
+          default: ec2 Autoscaling and Instance Configuration
+        Parameters:
+          - AdminUser
+          - AdminPubKey
+          - RoundcubeAMIOS
+          - RoundcubeInstanceType
+          - RoundcubeSecurityGroup
+          - PublicAlbListenerArn
+          - EC2KeyName
+          - NumberOfSubnets
+          - Subnet
+      - Label:
+          default: Application Load Balancer Configuration
+        Parameters:
+          - DnsName
+          - Vpc
+      - Label:
+          default: AWS S3 Configuration
+        Parameters:
+          - CFAssetsBucket
+          - S3KeyPrefix
+          - SkelFileDir
+      - Label:
+          default: Overrides
+        Parameters:
+          - AlternativeIAMRole
+          - AlternativeInitializationScript
+          - EnvironmentVariables
+
+    ParameterLabels:
+      AdminUser:
+        default: Alternative superuser account to create
+      AdminPubKey:
+        default: SSH public key for the AdminUser
+      AlternativeIAMRole:
+        default: Alternative IAM Role
+      AlternativeInitializationScript:
+        default: Alternative Initialization Script
+      DatabaseStackName:
+        default: Name for the stack that created the RDS instances
+      DnsName:
+        default: 'The FQDN for Roundcube (e.g., webmail.example.com)'
+      EnvironmentVariables:
+        default: Environment Variables
+      RoundcubeAMIOS:
+        default: AMI ID for Roundcube Servers
+      RoundcubeInstanceType:
+        default: Instance Type
+      RoundcubeSecurityGroup:
+        default: Roundcube Security Group
+      EC2KeyName:
+        default: Existing Key Pair
+      MailServerPrivateDNS:
+        default: Private DNS Name for the primary mail server
+      NumberOfSubnets:
+        default: Number of subnets
+      PublicAlbListenerArn:
+        default: Public Alb Listener Arn
+      RoundcubDBName:
+        default: Roundcube Database Name
+      RoundcubDBUser:
+        default: Roundcube Database Username
+      RoundcubDBPass:
+        default: Roundcube Database Password
+      Skin:
+        default: Roundcube Skin
+      Subnet:
+        default: Subnets
+      UseLDAP:
+        default: Use LDAP
+      Vpc:
+        default: Vpc Id
+
+Parameters:
+  AdminUser:
+    AllowedPattern: "^[a-z][-a-z0-9]*$|^$"
+    ConstraintDescription: "Must be a valid username for the OS to be used.
+      For sanity's sake, confining this to starting with a lower-case letter,
+      followed by an arbitrary number of lower-case letters, numbers, and the
+      dash character ('-')."
+    Description: 'An alternate account to be created on Roundcube instances
+      with superuser permissions.'
+    Type: String
+  AdminPubKey:
+    Default: ''
+    Description: 'The public key text to be installed in the authorized_hosts
+      file for the admin user. Will also be installed as an accepted key for
+      the default admin user.'
+    Type: String
+  AlternativeIAMRole:
+    Description: 'Specify an existing IAM Role name to attach to the server.
+      If left blank, a new role will be created.'
+    Default: ''
+    Type: String
+  AlternativeInitializationScript:
+    AllowedPattern: "^http.*|^$"
+    ConstraintDescription: 'URL must begin with "http".'
+    Description: 'Specify an alternative initialization script to run during
+      setup.'
+    Default: ""
+    Type: String
+  CFAssetsBucket:
+    AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
+    ConstraintDescription: 'Mirovoy CloudFront Assets Bucket name can include
+      numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot
+      start or end with a hyphen (-).'
+    Default: "mirovoy-cf-assets"
+    Description: 'S3 bucket name for the Mirovoy CloudFormation assets.'
+    Type: String
+  DatabaseStackName:
+    AllowedPattern: ^([a-zA-Z0-9]+[a-zA-Z0-9\-]*)$
+    ConstraintDescription: "A stack name can contain only alphanumeric
+      characters (case-sensitive) and hyphens. It must start with an
+      alphabetic character and can't be longer than 128 characters."
+    Description: The name of the stack that was used to create the RDS instances
+    MaxLength: 128
+    Type: String
+  DnsName:
+    Default: ""
+    Description: 'The fully-qualified domain name for the Roundcube server
+      (e.g., webmail.example.com).  NB: This should be assigned to the
+      application load balancer manually. It is used here to register as
+      a target for the loadbalancer.'
+    Type: String
+  EC2KeyName:
+    Description: Name of an EC2 KeyPair. Your Roundcube instances will launch
+      with this KeyPair.
+    Type: AWS::EC2::KeyPair::KeyName
+  EnvironmentVariables:
+    Description: 'Specify a comma separated list of environment variables for
+      use in bootstrapping by the alternative initialization script. Variables
+      must be in the format KEY=VALUE. VALUE cannot contain commas.'
+    Default: ''
+    Type: String
+  MailServerPrivateDNS:
+    Default: ""
+    Description: 'The fully-qualified domain name for the primary mail server
+      (e.g., ip-10-0-1-1.eu-central-1.compute.internal)'
+    Type: String
+  NumberOfSubnets:
+    AllowedValues:
+      - 2
+    Description: Number of subnets. This must match your selections in the
+      list of subnets below. You should select all Application subnets.
+    Default: 2
+    Type: String
+  RoundcubeAMIOS:
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+    Description: AMI ID to use for the mail servers
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+  RoundcubeDBUser:
+    AllowedPattern: ^([a-zA-Z0-9]*)$
+    Default: webmail
+    Description: The MySQL username to have access to the roundcube database.
+    ConstraintDescription: 'Must contain only alphanumeric characters and be at
+      most 32 characters.'
+    MaxLength: 32
+    MinLength: 1
+    Type: String
+  RoundcubeDBPass:
+    AllowedPattern: ^([a-z0-9A-Z`~!#$%^&*()_+,\\-])*$
+    ConstraintDescription: "Must be between 8 and 41 characters, including
+      letters (upper or lower), numbers, and these special characters
+      '_'`~!#$%^&*()_+,-"
+    Description: The MySQL password for the roundcube-database user.
+    MaxLength: 41
+    MinLength: 8
+    NoEcho: true
+    Type: String
+  RoundcubeDBName:
+    AllowedPattern: ^([a-zA-Z0-9]*)$
+    Default: roundcube
+    Description: The MySQL Roundcube database name.
+    Type: String
+  RoundcubeInstanceType:
+    AllowedValues:
+      - t2.nano
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t3.nano
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - m3.medium
+      - c5.large
+    ConstraintDescription: Must be a valid Amazon EC2 instance type.
+    Default: t3.nano
+    Description: Roundcube EC2 instance type.
+    Type: String
+  RoundcubeSecurityGroup:
+    Description: Select the Roundcube security group.
+    Type: AWS::EC2::SecurityGroup::Id
+  PublicAlbListenerArn:
+    Description: "The public application load balancer listener's arn."
+    Type: String
+  S3KeyPrefix:
+    AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
+    ConstraintDescription: 'Mirovoy CloudFront Assets S3 bucket  key prefix
+      can include numbers, lowercase letters, uppercase letters, hyphens (-),
+      and forward slash (/). The prefix should end with a forward slash (/).'
+    Default: "roundcube/"
+    Description: 'S3 key prefix for the Mirovoy CloudFormation assets. This
+      should be the top-level directory path inside the bucket, leading to the
+      assets for this template (e.g., scripts directory, etc... are located)'
+    Type: String
+  SkelFileDir:
+    Default: "var/skel/"
+    Description: "Path under S3 prefix for shell configuration file to put in
+      the alternate admin user's home dir, via /etc/skel/. Should end in a
+      slash."
+    Type: String
+  Skin:
+    AllowedValues:
+      - classic
+      - larry
+    Description: "Skin name. Select from folders in roundcube skins/"
+    Default: larry
+    Type: String
+  Subnet:
+    Description: Select existing subnets. The number selected must match the
+      number of subnets above. Subnets selected must be in separate AZs. You
+      should select all Application subnets.
+    Type: List<AWS::EC2::Subnet::Id>
+  UseLDAP:
+    AllowedValues:
+      - true
+      - false
+    Description: Use LDAP address books.
+    Default: true
+    Type: String
+  Vpc:
+    AllowedPattern: ^(vpc-)([a-z0-9]{8}|[a-z0-9]{17})$
+    Description: The Vpc Id of an existing Vpc.
+    Type: AWS::EC2::VPC::Id
+
+Conditions:
+  CreateAltAdmin:
+    !Not [!Equals [!Ref AdminUser, '']]
+  CreateIAMRole:
+    !Equals [!Ref AlternativeIAMRole, '']
+  NumberOfSubnets1:
+    !Equals [1, !Ref NumberOfSubnets]
+  NumberOfSubnets2:
+    !Equals [2, !Ref NumberOfSubnets]
+  Subnet0: !Or
+    - !Condition NumberOfSubnets1
+    - !Condition NumberOfSubnets2
+  Subnet1: !Condition NumberOfSubnets2
+  UseAlternativeInitialization: !Not [
+    !Equals [!Ref AlternativeInitializationScript, '']]
+  WantLDAP:
+    !Equals [true, !Ref UseLDAP]
+
+Resources:
+  RoundcubeAlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: RoundcubeTargets
+      Port: 443
+      Protocol: HTTPS
+      TargetType: instance
+      VpcId: !Ref Vpc
+
+  RoundcubeAlbListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref RoundcubeAlbTargetGroup
+          Type: forward
+      Conditions:
+        - Field: host-header
+          Values:
+            - !Ref DnsName
+      ListenerArn: !Ref PublicAlbListenerArn
+      Priority: 110
+
+  RoundcubeAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      Cooldown: 60
+      HealthCheckGracePeriod: 120
+      HealthCheckType: EC2
+      LaunchConfigurationName: !Ref RoundcubeLaunchConfiguration
+      MaxSize: 1
+      MinSize: 1
+      Tags:
+        - Key: Name
+          Value: !Join ['', ['Roundcube / ', !Ref 'AWS::StackName']]
+          PropagateAtLaunch: true
+      TargetGroupARNs:
+        - !Ref RoundcubeAlbTargetGroup
+      VPCZoneIdentifier:
+        !If [NumberOfSubnets1,
+             [!Select [0, !Ref Subnet]],
+             [!Select [0, !Ref Subnet], !Select [1, !Ref Subnet]]
+        ]
+
+  RoundcubeHostRole:
+    Condition: CreateIAMRole
+    Type: AWS::IAM::Role
+    Properties:
+      Path: '/'
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: logs
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource:
+                  - arn:aws:logs:*:*:*
+
+  RoundcubeHostPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "RoundcubePolicy"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: "Allow"
+            Action:
+              - "s3:GetObject"
+            Resource:
+              !Sub "arn:aws:s3:::${CFAssetsBucket}/${S3KeyPrefix}*"
+          -
+            Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource: !Join
+              - ''
+              - - !Sub "arn:aws:secretsmanager:${AWS::Region}:"
+                - !Sub "${AWS::AccountId}:secret:${DatabaseStackName}"
+                - "-dbcreds-??????"
+          -
+            Effect: "Allow"
+            Action:
+              - "ec2:AssociateAddress"
+              - "ec2:DescribeAddress"
+            Resource: "*"
+      Roles:
+        -
+          !If [CreateIAMRole, !Ref RoundcubeHostRole, !Ref AlternativeIAMRole]
+
+  RoundcubeHostProfile:
+    DependsOn: RoundcubeHostPolicy
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !If [CreateIAMRole, !Ref RoundcubeHostRole, !Ref AlternativeIAMRole]
+
+  RoundcubeLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Metadata:
+      AWS::CloudFormation::Authentication:
+        S3AccessCreds:
+          type: "S3"
+          roleName: !If [
+            CreateIAMRole, !Ref RoundcubeHostRole, !Ref AlternativeIAMRole]
+          buckets: [!Ref CFAssetsBucket]
+      AWS::CloudFormation::Init:
+        configSets:
+          install:
+            - basics
+            - install_php
+            - install_roundcube
+        basics:
+          packages:
+            yum:
+              "ksh": []
+          files:
+            /tmp/roundcube_bootstrap.sh:
+              source: !If [
+                UseAlternativeInitialization,
+                !Ref AlternativeInitializationScript,
+                #
+                # Added AWS::Region to the URL, which deviates from the
+                # QuickStart example, because without it, it falls back to
+                # using an older authentication mechansim, which isn't
+                # supported in all regions.
+                #
+                !Join ['',
+                       [!Sub "https://${CFAssetsBucket}.s3-",
+                        !Sub "${AWS::Region}.amazonaws.com/${S3KeyPrefix}",
+                        "scripts/roundcube_bootstrap.sh"
+                       ]
+                ]
+              ]
+              mode: "000550"
+              owner: "root"
+              group: "root"
+              authenticaiton: S3AccessCreds
+            /tmp/profile:
+              source: !Join
+                - ''
+                - - !Sub "https://${CFAssetsBucket}.s3-${AWS::Region}"
+                  - !Sub ".amazonaws.com/${S3KeyPrefix}${SkelFileDir}profile"
+              mode: "000600"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
+            /tmp/shrc:
+              source: !Join
+                - ''
+                - - !Sub "https://${CFAssetsBucket}.s3-${AWS::Region}"
+                  - !Sub ".amazonaws.com/${S3KeyPrefix}${SkelFileDir}shrc"
+              mode: "000600"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
+            /tmp/adminpubkey.pub:
+              content: !If
+                - CreateAltAdmin
+                - !Ref AdminPubKey
+                - " "
+              mode: "000644"
+              owner: "root"
+              group: "root"
+          commands:
+            01_bootstrap:
+              command: !If
+                - CreateAltAdmin
+                - !Join ["", ["./tmp/roundcube_bootstrap.sh",
+                              " --admin-user ",
+                              !Ref AdminUser]]
+                - "./tmp/roundcube_bootstrap.sh"
+        install_php:
+          commands:
+            # we need php 7 to fix a backwards compatibility issue with
+            # MySQL > 8.0.1: https://bugs.php.net/bug.php?id=74461
+            01_make_epel_available:
+              command: amazon-linux-extras enable php7.2
+              test: !Join
+                - ''
+                - - '[[ (! `which php`) || '
+                  - '`php --version | head -n 1 | cut -d " " -f 2 | '
+                  - 'cut -c 1,3` -lt 70 ]]'
+            02_install_php:
+              command: yum install -y php
+              test: !Join
+                - ''
+                - - '[[ (! `which php`) || '
+                  - '`php --version | head -n 1 | cut -d " " -f 2 | '
+                  - 'cut -c 1,3` -lt 70 ]]'
+            03_install_php_components:
+              command: !Join
+                - ''
+                - - 'yum install -y php-gd php-mbstring php-xml '
+                  - 'php-pdo php-mysqlnd php-intl'
+              test: !Join
+                - ''
+                - - '[[ `which php` && '
+                  - '`php --version | head -n 1 | cut -d " " -f 2 | '
+                  - 'cut -c 1,3` -ge 70 ]]'
+        install_roundcube:
+          packages:
+            yum:
+              "httpd": []
+              "mod_ssl": []
+              "git": []
+          files:
+            /tmp/composer_installer.sh:
+              content: |
+                #!/bin/sh
+
+                EXPECTED_SIGNATURE="$(wget -q -O - \
+                  https://composer.github.io/installer.sig)"
+                php -r "copy('https://getcomposer.org/installer', \
+                  'composer-setup.php');"
+                ACTUAL_SIGNATURE="$(php -r "echo hash_file('sha384', \
+                  'composer-setup.php');")"
+
+                if [ "$EXPECTED_SIGNATURE" != "$ACTUAL_SIGNATURE" ]
+                then
+                    >&2 echo 'ERROR: Invalid installer signature'
+                    rm composer-setup.php
+                    exit 1
+                fi
+
+                php composer-setup.php --quiet
+                RESULT=$?
+                rm composer-setup.php
+                exit $RESULT
+              mode: "000700"
+              owner: "root"
+              group: "root"
+            /tmp/mysql80.rpm:
+              source: !Join
+                - ''
+                - - https://dev.mysql.com/get/
+                  - mysql80-community-release-el7-2.noarch.rpm
+              mode: "000600"
+              owner: "root"
+              group: "root"
+            /tmp/setup.mysql:
+              content: !Sub |
+                CREATE DATABASE IF NOT EXISTS ${RoundcubeDBName}
+                CHARACTER SET utf8 COLLATE utf8_general_ci;
+                CREATE USER IF NOT EXISTS '${RoundcubeDBUser}'@'%'
+                IDENTIFIED by '${RoundcubeDBPass}';
+                GRANT ALL PRIVILEGES
+                ON ${RoundcubeDBName}.* TO '${RoundcubeDBUser}'@'%';
+              mode: "000400"
+              owner: "root"
+              group: "root"
+            /tmp/password:
+              content: !Sub ${RoundcubeDBPass}
+              mode: "000400"
+              owner: "root"
+              group: "root"
+            /tmp/config.inc.php:
+              content:
+                Fn::Sub:
+                  - |
+                    <?php
+                    $config = array();
+                    $config['db_dsnw'] =
+                        'mysql://${RoundcubeDBUser}:PASSWORD' .
+                        '@${RDSHost}/${RoundcubeDBName}';
+                    $config['log_driver'] = 'syslog';
+                    $config['default_host'] = '${MailServerPrivateDNS}';
+                    $config['default_port'] = 993;
+                    $config['smtp_server'] = '${MailServerPrivateDNS}';
+                    $config['smtp_port'] = 587;
+                    $config['smtp_user'] = '%u';
+                    $config['smtp_pass'] = '%p';
+                    $config['support_url'] = '';
+                    $config['product_name'] = 'Roundcube Webmail';
+                    $config['des_key'] = 'DESKEY';
+                    $config['plugins'] = array(
+                        'archive',
+                        'zipdownload',
+                    );
+                    $config['skin'] = '${Skin}';
+                  - RDSHost:
+                      Fn::ImportValue:
+                        !Sub '${DatabaseStackName}-MasterDBEndpoint'
+              mode: "000400"
+              owner: "root"
+              group: "root"
+          commands:
+            01_get_roundcube:
+              command: !Join
+                - ''
+                - - 'wget https://github.com/roundcube/roundcubemail/'
+                  - 'releases/download/1.3.10/'
+                  - 'roundcubemail-1.3.10-complete.tar.gz'
+              cwd: /tmp
+            02_untar_roundcube:
+              command: !Join
+                - ''
+                - - 'tar -zxvf /tmp/'
+                  - 'roundcubemail-1.3.10-complete.tar.gz'
+                  - ' --strip-components 1'
+              cwd: /var/www/html
+              test: "[ -d /var/www/html ]"
+            03_mv_config_into_place:
+              command: mv composer.json-dist composer.json
+              cwd: /var/www/html
+              test: "[ -f composer.json-dist ]"
+            04_install_composer:
+              command: export HOME="/home/ec2-user"; /tmp/composer_installer.sh
+              cwd: /var/www/html
+              test: "[ -f /tmp/composer_installer.sh ]"
+            05_create_swap_file:
+              command: dd if=/dev/zero of=/var/swap.1 bs=1M count=1024
+              test: "[[ ! $(swapon -s) ]]"
+            06_secure_swap_file:
+              command: chmod 0600 /var/swap.1
+              test: "[[ ! $(swapon -s) && -f /var/swap.1 ]]"
+            07_mkswap:
+              command: mkswap /var/swap.1
+              test: "[[ ! $(swapon -s) && -f /var/swap.1 ]]"
+            08_swapon:
+              command: swapon /var/swap.1
+              test: "[[ ! $(swapon -s) && -f /var/swap.1 ]]"
+            09_compose:
+              command: !Join
+                - " "
+                - - 'export HOME="/home/ec2-user";'
+                  - 'php composer.phar install --no-dev'
+              cwd: /var/www/html
+              test: "[ -f composer.phar ]"
+            10_touch_index:
+              # so the loadbalancer correctly detects instance health
+              command: touch /var/www/html/index.html
+              test: "[ ! -e /var/www/html/index.html ]"
+            11_apache_header_update_fix:
+              # There is currently a bug in Apache:
+              # https://bz.apache.org/bugzilla/show_bug.cgi?id=59311
+              #
+              # such that it sends Upgrade headers when SSL is used. This is
+              # against the spec, and in particular screws up at least Safari.
+              # Since we're always using HTTPS, we shouldn't ever need to send
+              # the Upgrade headers, so we just nuke it (at least until the
+              # Apache bug is fixed)
+              command: "sed -i '/^<VirtualHost/a Header unset Upgrade' ssl.conf"
+              cwd: /etc/httpd/conf.d
+              test: "! grep -l Upgrade ssl.conf"
+            12_get_mysql_repo:
+              command: "yum -y localinstall mysql80.rpm"
+              cwd: /tmp
+              test: "test -e /tmp/mysql80.rpm"
+            13_install_mysql_client:
+              command: "yum -y install mysql-community-client"
+              test: "yum repolist enabled | grep mysql"
+            14_create_roundcube_db:
+              command: !Join
+                # The aws CLI query to get the secrets from the Secrets
+                # Manager are a little gross here. OK, a lot gross — because
+                # the actual SecretString returns a String, not an object
+                # that is further queryiable with JMESPath. For example
+                # it might output
+                #
+                # {"user":"secretuser", "password":"secretpass"}
+                #
+                # the above could be further queried by jq ... but jq isn't
+                # installed be default, whereas grep is, so we do this the
+                # old fashioned way. grep.
+                - ''
+                - - "mysql -u "
+                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
+                  - "get-secret-value --secret-id "
+                  - !Sub "${DatabaseStackName}-dbcreds "
+                  - "--query SecretString --output text | grep -Po "
+                  - "'user\":\"\\K.*?(?=\")'` "
+                  - "--password="
+                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
+                  - "get-secret-value --secret-id "
+                  - !Sub "${DatabaseStackName}-dbcreds "
+                  - "--query SecretString --output text | grep -Po "
+                  - "'password\":\"\\K.*?(?=\")'` -h "
+                  - Fn::ImportValue: !Sub ${DatabaseStackName}-MasterDBEndpoint
+                  - " </tmp/setup.mysql"
+              test: !Join
+                - ''
+                - - "! $(mysql -u "
+                  - !Ref RoundcubeDBUser
+                  - " --password='"
+                  - !Ref RoundcubeDBPass
+                  - "' -h "
+                  - Fn::ImportValue: !Sub
+                      '${DatabaseStackName}-MasterDBEndpoint'
+                  - " >/dev/null 2>&1 </dev/null)"
+            15_backup_mysql_config:
+              command: cp mysql.initial.sql mysql.initial.bak
+              cwd: /var/www/html/SQL
+              test: "test -f mysql.initial.sql"
+            16_dont_overwrite_tables:
+              command: !Join
+                - ''
+                - - "sed -i 's/^CREATE TABLE/CREATE TABLE IF NOT EXISTS/g' "
+                  - "mysql.initial.sql"
+              cwd: /var/www/html/SQL
+              test: "test -f mysql.initial.sql"
+            17_do_overwrite_version:
+              command: !Join
+                - ''
+                - - "sed -i 's/^INSERT INTO/REPLACE INTO/g' "
+                  - "mysql.initial.sql"
+              cwd: /var/www/html/SQL
+              test: "test -f mysql.initial.sql"
+            18_configure_roundcube_db:
+              command: !Join
+                # The aws CLI query to get the secrets from the Secrets
+                # Manager are a little gross here. OK, a lot gross — because
+                # the actual SecretString returns a String, not an object
+                # that is further queryiable with JMESPath. For example
+                # it might output
+                #
+                # {"user":"secretuser", "password":"secretpass"}
+                #
+                # the above could be further queried by jq ... but jq isn't
+                # installed be default, whereas grep is, so we do this the
+                # old fashioned way. grep.
+                - ''
+                - - "mysql -u "
+                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
+                  - "get-secret-value --secret-id "
+                  - !Sub "${DatabaseStackName}-dbcreds "
+                  - "--query SecretString --output text | grep -Po "
+                  - "'user\":\"\\K.*?(?=\")'` "
+                  - "--password="
+                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
+                  - "get-secret-value --secret-id "
+                  - !Sub "${DatabaseStackName}-dbcreds "
+                  - "--query SecretString --output text | grep -Po "
+                  - "'password\":\"\\K.*?(?=\")'` -h "
+                  - Fn::ImportValue: !Sub ${DatabaseStackName}-MasterDBEndpoint
+                  - !Sub " ${RoundcubeDBName}"
+                  - " <mysql.initial.sql"
+              cwd: /var/www/html/SQL
+              test: !Join
+                - ''
+                - - "$(mysql -u "
+                  - !Ref RoundcubeDBUser
+                  - " --password='"
+                  - !Ref RoundcubeDBPass
+                  - "' -h "
+                  - Fn::ImportValue: !Sub
+                      '${DatabaseStackName}-MasterDBEndpoint'
+                  - " >/dev/null 2>&1 </dev/null)"
+            19_restore_mysql_config:
+              command: mv mysql.initial.bak mysql.initial.sql
+              cwd: /var/www/html/SQL
+              test: "test -f mysql.initial.bak"
+            20_create_des_key:
+              command: !Join
+                # This has to be "secure" and exactly 24 characters, so we
+                # generate some randome characters. Base64 includes alphanum
+                # as well as + / and = so we use ; as the delimiter to sed
+                - ''
+                - - 'sed -i "s;DESKEY;`bash -c ''head -c24 <(base64 < '
+                  - '/dev/urandom)''`;" config.inc.php'
+              cwd: /tmp
+              test: "[[ -f config.inc.php ]]"
+            21_url_encode_password:
+              # Apparently the password has to be URL encoded ... though I can't
+              # find that documented anywhere :(
+              command: !Join
+                - ''
+                - - 'sed -i "s/PASSWORD/`cat password | python -c '
+                  - "'import urllib; print urllib.quote(raw_input())'`/"
+                  - '" config.inc.php'
+              cwd: /tmp
+            22_configure_roundcube:
+              command: "mv /tmp/config.inc.php ."
+              cwd: /var/www/html/config
+              test: "[[ -f /tmp/config.inc.php && ! -f config.inc.php ]]"
+            23_allow_htaccess:
+              # Since Apache 2.4, support for .htaccess is disabled by default
+              command: |
+                sed -i '/^<\/Directory>/a\
+                <Directory "\/">\
+                    AllowOverride all\
+                <\/Directory>' ssl.conf
+              cwd: /etc/httpd/conf.d
+              test: "! grep -l 'AllowOverride all' *.conf"
+            24_fix_permissions:
+              command: chown -R apache:apache *
+              cwd: /var/www/html
+          services:
+            sysvinit:
+              httpd:
+                enabled: true
+                ensureRunning: true
+                files:
+                  - "/etc/httpd/conf/httpd.conf"
+                packages:
+                  yum:
+                    - "httpd"
+
+    Properties:
+      IamInstanceProfile: !Ref RoundcubeHostProfile
+      ImageId: !Ref RoundcubeAMIOS
+      InstanceMonitoring: true
+      InstanceType: !Ref RoundcubeInstanceType
+      KeyName: !Ref EC2KeyName
+      SecurityGroups:
+        - !Ref RoundcubeSecurityGroup
+      UserData: !Base64
+        Fn::Join:
+          - ''
+          - - |
+              #!/bin/bash -x
+              #
+              # update packages
+              yum update -y
+              # setup environment
+            - 'for e in $(echo "'
+            - !Ref EnvironmentVariables
+            - '" | tr "," " "); do'
+            - |2
+
+                  export $e
+              done
+              export PATH=$PATH:/usr/local/bin
+              # install AWS CLI
+              which pip &> /dev/null
+              if [ ! $? ] ; then
+                  echo "PIP NOT INSTALLED"
+            - '    $(yum install -y epel-release; yum install -y python-pip) '
+            - '&& echo "PIP INSTALLED"'
+            - |2
+
+              fi
+              pip install --upgrade pip &> /dev/null
+              pip install awscli --ignore-installed six &> /dev/null
+            - 'easy_install '
+            - 'https://s3.amazonaws.com/cloudformation-examples/'
+            - 'aws-cfn-bootstrap-latest.tar.gz'
+            - |2
+
+              # run cfn-init
+            - '/opt/aws/bin/cfn-init -v --stack '
+            - !Ref 'AWS::StackName'
+            - '		--resource RoundcubeLaunchConfiguration '
+            - '		--region '
+            - !Ref 'AWS::Region'
+            - ' --configsets install'
+            - |+
