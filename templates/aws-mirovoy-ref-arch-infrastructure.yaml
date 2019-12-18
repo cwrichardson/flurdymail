@@ -132,15 +132,15 @@ Metadata:
       CFAssetsBucket:
         default: Mirovvoy CloudFormation Assets S3 bucket name
       DatabaseEncryptedBoolean:
-        default: Encrypted DB Cluster
+        default: Encrypt DB Cluster?
       DatabaseCmk:
-        default: AWS KMS Customer Master Key (CMK) to encrypt DB
+        default: Database AWS KMS Customer Master Key (CMK)
       DatabaseInstanceType:
-        default: DB Instance Class
+        default: Database Instance Class
       DatabaseMasterUsername:
-        default: DB Master Username
+        default: Database Master Username
       DatabaseMasterPassword:
-        default: DB Master Password
+        default: RDS Database Master Password
       DatabaseRestoreSnapshot:
         default: Snapshot to restore from
       CreateReplica:
@@ -205,7 +205,8 @@ Parameters:
   AdminPubKey:
     Description: 'The public key text to be installed in the authorized_hosts
       file for the admin user. Will also be installed as an accepted key for
-      the default admin user.'
+      the default admin user (e.g., ec2-user@). You can probably just cut
+      and paste from ~/.ssh/id_rsa.pub'
     Type: String
   AlternativeBastionIAMRole:
     Description: 'Specify an existing IAM Role name to attach to the bastion.
@@ -303,9 +304,9 @@ Parameters:
   BlowfishSecret:
     Default: ''
     Description: 'phpmyadmin uses this to encrypt the password
-      stored in the cookie. From the docs: The “cookie” auth_type
+      stored in the cookie. From the docs: The \“cookie\” auth_type
       uses AES algorithm to encrypt the password. If you are using
-      the “cookie” auth_type, enter here a random passphrase of
+      the \“cookie\” auth_type, enter here a random passphrase of
       your choice. It will be used internally by the AES algorithm:
       you won’t be prompted for this passphrase.
 
@@ -349,7 +350,8 @@ Parameters:
       instance type."
     Type: String
   DatabaseCmk:
-    Description: AWS KMS Customer Master Key (CMK) to encrypt database cluster
+    Description: The ARN of the AWS KMS Customer Master Key (CMK) to encrypt
+    the database cluster.
     Type: String
   DatabaseInstanceType:
     AllowedValues:
@@ -381,6 +383,8 @@ Parameters:
       (minimum 8; maximum 16)."
     Default: root
     Description: The "root" user to configure for the Amazon RDS database.
+      You can change the username fron "root" if you wish, in optional
+      settings, below.
     MaxLength: 32
     MinLength: 1
     Type: String
@@ -487,8 +491,9 @@ Parameters:
     Type: String
   PublicAlbAcmCertificate:
     AllowedPattern: ^$|(arn:aws:acm:)([a-z0-9/:-])*([a-z0-9])$
-    Description: "[Optional] The AWS Certification Manager certificate ARN
-      for the ALB certificate - this certificate should be created in the
+    Description: "The AWS Certification Manager certificate ARN
+      for the ALB certificate. This is only required if you enable either
+      phpMyAdmin or Roundcube. This certificate should be created in the
       region you wish to run the ALB and must reference the domain
       names you wish to load balance. If you're using phpMyAdmin and www,
       for example, it should include both of those fully qualified
