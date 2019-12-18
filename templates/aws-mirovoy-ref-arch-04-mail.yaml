@@ -2501,3 +2501,7 @@ Resources:
       InstanceId: !Ref MailServerInstance
       VolumeId:
         Fn::ImportValue: !Sub '${StorageStackName}:MasterLogEBS'
+
+Outputs:
+  PrimaryMailServerPrivateDNS:
+    Value: !GetAtt MailServerInstance.PrivateDnsName
