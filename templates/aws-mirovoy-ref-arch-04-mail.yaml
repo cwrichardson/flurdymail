@@ -73,8 +73,6 @@ Metadata:
           - CertSource
           - AccountEmail
           - DNSZone
-          - AltDomainList
-          - DnsExtraWait
           - CertFileDir
       - Label:
           default: Dovecot Parameters
@@ -94,6 +92,7 @@ Metadata:
           - XandrosPass
           - VivitaPass
           - ExternalTestEmail
+          - SSLDebug
           - ADLogLevel
           - DisableVirusChecks
           - DisableSpamChecks
@@ -119,8 +118,6 @@ Metadata:
         default: Alternative superuser account to create
       AdminPubKey:
         default: SSH public key for the AdminUser
-      AltDomainList:
-        default: Other authorized domains / hosts
       BackupSubnet:
         default: Subnet in which to place the backup mail server
       Banner:
@@ -139,8 +136,6 @@ Metadata:
         default: Disable virus checks, even if amavisd is running
       DisableServices:
         default: Services to disable for testing purposes
-      DnsExtraWait:
-        default: DNS Extra Wait
       DNSZone:
         default: DNS Zone for SSL cert verification
       EC2KeyName:
@@ -201,6 +196,8 @@ Metadata:
         default: S3 Directory for /etc/skel files
       SoftErrLimit:
         default: How many errors before backoff
+      SSLDebug:
+        default: Enable acme.sh debugging
       StorageStackName:
         default: Name for the stack that created the EBS volumes
       UnknownLocalErrorCode:
@@ -247,15 +244,6 @@ Parameters:
       Will also be installed in authorized_hosts for the default
       admin user (ec2-user). Probably just cut and paste the contents
       of your id_rsa.pub file for the user.'
-    Type: String
-  AltDomainList:
-    Description: 'A comma separated list of domains and hosts to be validated
-      for inclusion in the SSL certificate. If left blank, the certificate
-      will cover your primary domain and your primary server (e.g.,
-      example.com and mail.example.com). If you include other information
-      here, you must also include your primary server. So, if you want the
-      cert to cover both this mail server and your web server, you could put
-      "mail.example.com,www.example.com".'
     Type: String
   Banner:
     Default: "$myhostname ESMTP $mail_name"
@@ -323,14 +311,6 @@ Parameters:
       amavisd up and running and passing messages back and forth from
       postfix."
     Type: String
-  DnsExtraWait:
-    Default: 15
-    Description: "When using getssl certificates, we validate with DNS.
-      Sometimes, even after the internal tests are run, the call to the acme
-      server fails the nslookup on the txt record that is uses, so we add
-      an extra delay. If your finding the same problem, try increasing this
-      value."
-    Type: Number
   DNSZone:
     Description: 'The Route53 Hosted Zone that includes the mail server. This
       will be used for automatic authorization during the creation process for
@@ -378,6 +358,14 @@ Parameters:
       host.example.com and example.com, respectively. If you set this to
       true, then those defaults will be changed to the host and domain
       you configured as the primary server name, above."
+    Type: String
+  SSLDebug:
+    AllowedValues:
+      - true
+      - false
+    Default: false
+    Description: "Set the --debug flag for acme.sh, which may prove useful
+      if you're having trouble getting an SSL cert."
     Type: String
   VirtualUID:
     Default: 5000
@@ -692,6 +680,8 @@ Conditions:
     !Equals [!Ref AdminUser, '']
   SetAccountEmail:
     !Not [!Equals [!Ref AccountEmail, '']]
+  SetSSLDebug:
+    !Equals [!Ref SSLDebug, true]
   SwapOn:
     !Equals [!Ref UseSwap, true]
   UseTestData:
@@ -738,13 +728,13 @@ Resources:
             Effect: Allow
             Action:
               - route53:ListHostedZones
-              - route53:GetChange
             Resource: "*"
           -
             Effect: Allow
             Action:
               - route53:ChangeResourceRecordSets
               - route53:GetHostedZone
+              - route53:ListResourceRecordSets
             Resource:
               !Sub
               - "arn:aws:route53:::hostedzone/${MyZone}"
@@ -820,7 +810,7 @@ Resources:
             - config_amavisd
           # 04 Disable PostGrey, ClamAV, SpamAssassin
           config_04:
-            - get_getssl
+            - get_acmesh
             -
               ConfigSet: "config_05"
             - config_tls
@@ -1314,161 +1304,68 @@ Resources:
                       '${DatabaseStackName}-MasterDBEndpoint'
                   - " >/dev/null 2>&1 </dev/null)"
 
-        get_getssl:
+        get_acmesh:
           sources:
-            /tmp/getssl: https://github.com/srvrco/getssl/tarball/master
+            /tmp/acmesh: https://github.com/Neilpang/acme.sh/tarball/master
           commands:
-            # we need EPEL to get the certbot scripts for LetsEncrypt SSL certs
-            01_make_epel_available:
-              command: amazon-linux-extras enable epel
-              test: "! yum repolist enabled | grep epel"
-            # I have no idea what this does, but after enabling epel in
-            # Amazon Linux Extras, it's the recommended way to actually
-            # install epel
-            02_clean_yum_metadata:
-              command: yum clean metadata
-              test: "yum repolist enabled | grep amzn2extra-epel"
-            03_install_epel:
-              command: yum install -y epel-release
-              test: "! yum repolist enabled | grep ^\\*epel"
-            04_install_pip:
-              command: yum install -y python3-pip
-              test: "! which pip3 > /dev/null 2>&1"
-            05_install_boto3:
-              command: pip3 install boto3 > /dev/null 2>&1
-              test: which pip3 > /dev/null 2>&1
-            06_install_dnspython:
-              command: pip3 install dnspython > /dev/null 2>&1
-              test: which pip3 > /dev/null 2>&1
-            07_install_getssl:
-              command: make install
-              cwd: /tmp/getssl
-              test: test -f Makefile
-            08_install_dns_add:
-              command: "ln -s /usr/share/getssl/dns_scripts/dns_route53.py \
-                dns_add_route53"
-              cwd: /usr/local/bin
-              test: test -f /usr/share/getssl/dns_scripts/dns_route53.py
-            09_install_dns_del:
-              command: "ln -s /usr/share/getssl/dns_scripts/dns_route53.py \
-                dns_del_route53"
-              cwd: /usr/local/bin
-              test: test -f /usr/share/getssl/dns_scripts/dns_route53.py
-            10_create_config:
+            01_install_acmesh:
               command: !Join
                 - ' '
-                - - getssl -c -w /etc/getssl
-                  - !Ref PrimaryServerName
-            11_set_account_email:
-              command:
-                Fn::If:
-                  - SetAccountEmail
-                  - !Join
+                - - ./acme.sh --install --home /usr/local/sbin
+                  - --config-home /etc/acmesh
+                  - Fn::If:
+                    - SetAccountEmail
+                    - Fn::Join:
+                      - ' '
+                      - - --accountemail
+                        - !Ref AccountEmail
                     - ''
-                    - - "sed -i 's/^#ACCOUNT_EMAIL.*/ACCOUNT_EMAIL=\""
-                      - !Ref AccountEmail
-                      - "\"/' getssl.cfg"
-                  - echo "No account email to set."
-              cwd: /etc/getssl
-            12_set_server_type:
+              cwd: /tmp/acmesh
+            02_issue_ssl_cert:
               command: !Join
-                - ''
-                - - sed -i 's/SERVER_TYPE="https"/SERVER_TYPE="imaps"/'
-                  - " getssl.cfg"
-              cwd: /etc/getssl
-            13_no_check_remote:
-              command: !Join
-                - ''
-                - - sed -i 's/CHECK_REMOTE="true"/CHECK_REMOTE="false"/'
-                  - " getssl.cfg"
-              cwd: /etc/getssl
-            14_validate_via_dns:
-              command: !Join
-                - ''
-                - - sed -i 's/^#VALIDATE_VIA_DNS/VALIDATE_VIA_DNS/'
-                  - " getssl.cfg"
-              cwd: /etc/getssl
-            15_set_dns_add:
-              command: !Join
-                - ''
-                - - "sed -i 's;^#DNS_ADD_COMMAND.*;DNS_ADD_COMMAND="
-                  - "\"/usr/local/bin/dns_add_route53\";' getssl.cfg"
-              cwd: /etc/getssl
-              test: "! grep ^DNS_ADD_COMMAND getssl.cfg"
-            16_set_dns_del:
-              command: !Join
-                - ''
-                - - "sed -i 's;^#DNS_DEL_COMMAND.*;DNS_DEL_COMMAND="
-                  - "\"/usr/local/bin/dns_del_route53\";' getssl.cfg"
-              cwd: /etc/getssl
-              test: "! grep ^DNS_DEL_COMMAND getssl.cfg"
-            #
-            # DNS checks sometimes fail to pass at the ACME server, even after
-            # the internal tests are working. DNS can be slow. This sets the
-            # time period to wait, after the internal checks of DNS server have
-            # returned the correct value, before asking the ACME server to
-            # verify the tokens are correct.
-            #
-            16_set_dns_extra_wait:
-              command: !Join
-                - ''
-                - - "sed -i 's/^#DNS_EXTRA_WAIT.*/DNS_EXTRA_WAIT="
-                  - !Ref DnsExtraWait
-                  - "/' getssl.cfg"
-              cwd: /etc/getssl
-              test: "grep ^#DNS_EXTRA_WAIT getssl.cfg"
-            17_set_SANS:
-              command: !Join
-                - ''
-                - - "sed -i 's/^SANS=.*/SANS=\""
-                  - !Ref AltDomainList
-                  - "\"/' getssl.cfg"
-              cwd: !Join
-                - ''
-                - - /etc/getssl/
+                - ' '
+                - - acme.sh
+                  - Fn::If:
+                    - SetSSLDebug
+                    - --debug
+                    - ''
+                  - Fn::If:
+                    - GetSSLTest
+                    - --test
+                    - ''
+                  - --config-home /etc/acmesh
+                  - --issue -d
                   - !Ref PrimaryServerName
-              test: "grep ^SANS getssl.cfg"
-            18_cert_location:
+                  - --dns dns_aws
+            03_install_ssl_cert:
               command: !Join
-                - ''
-                - - "sed -i 's;^#DOMAIN_PEM_LOCATION=.*;"
-                  - "DOMAIN_PEM_LOCATION=\"/etc/pki/dovecot/certs/"
+                - ' '
+                - - acme.sh
+                  - Fn::If:
+                    - SetSSLDebug
+                    - --debug
+                    - ''
+                  - --config-home /etc/acmesh
+                  - --install-cert -d
                   - !Ref PrimaryServerName
-                  - ".chain.pem\";' getssl.cfg"
-              cwd: !Join
-                - ''
-                - - /etc/getssl/
-                  - !Ref PrimaryServerName
-              test: "grep ^#DOMAIN_CERT getssl.cfg"
-            19_key_location:
-              command: !Join
-                - ''
-                - - "sed -i 's;^#DOMAIN_KEY_LOCATION=\"/etc/ssl/;"
-                  - "DOMAIN_KEY_LOCATION=\"/etc/pki/dovecot/private/;' "
-                  - "getssl.cfg"
-              cwd: !Join
-                - ''
-                - - /etc/getssl/
-                  - !Ref PrimaryServerName
-              test: "grep ^#DOMAIN_KEY getssl.cfg"
-            21_config_wait_for_dns:
-              command: "echo CHECK_ALL_AUTH_DNS=\"true\" >> getssl.cfg"
-              cwd: !Join
-                - ''
-                - - /etc/getssl/
-                  - !Ref PrimaryServerName
-              test: "! grep ^CEHCK_ALL_AUTH_DNS getssl.cfg"
-            #
-            # for some reason, getssl can't find boto3 without this. I
-            # suspect that means that pip isn't doing the right thing for
-            # the boto3 install, but what do I know?
-            #
-            22_get_ssl_cert:
-              command: !Join
-                - ''
-                - - "PYTHONPATH=/usr/local/lib/python3.7/site-packages/; "
-                  - "export PYTHONPATH && /usr/bin/getssl -d -w /etc/getssl "
-                  - !Ref PrimaryServerName
+                  - --cert-file
+                  - Fn::Join:
+                    - ''
+                    - - /etc/pki/dovecot/certs/
+                      - !Ref PrimaryServerName
+                      - .cert.pem
+                  - --fullchain-file
+                  - Fn::Join:
+                    - ''
+                    - - /etc/pki/dovecot/certs/
+                      - !Ref PrimaryServerName
+                      - .chain.pem
+                  - --key-file
+                  - Fn::Join:
+                    - ''
+                    - - /etc/pki/dovecot/private/
+                      - !Ref PrimaryServerName
+                      - .key
 
         install_mailserver:
           packages:
