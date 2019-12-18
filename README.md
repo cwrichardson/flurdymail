@@ -166,6 +166,17 @@ data, and to turn services on/off incrementally to aid in testing.
 
 ### Significant Variances
 
+#### Encrypted Passwords
+
+Jon Jerome's Dovecot guide relies on the passwords being stored in
+the databases in CRYPT. Instead we use SHA256. This would be a minor
+change, except for the fact that it means you **can not migrate
+databases directly from earlier Flurdy instances**. The method of
+encrypting the password in the database has changed in a
+non-backwards-compatible way. See the To Do list for more information.
+
+### Minor Variances
+
 #### Firewall
 
 This does not install the Shorewall firewall. Instead, it relies on the 
@@ -177,17 +188,6 @@ ignored. As they say, "not essential for an EC2 image."
 
 The entire SASL (Authentication) section of the Flurdy docs can be ignored,
 as the current versions of Postfix and Dovecot support SASL via Dovecot.
-
-#### Encrypted Passwords
-
-Jon Jerome's Dovecot guide relies on the passwords being stored in
-the databases in CRYPT. Instead we use SHA256. This would be a minor
-change, except for the fact that it means you **can not migrate
-databases directly from earlier Flurdy instances**. The method of
-encrypting the password in the database has changed in a
-non-backwards-compatible way. See the To Do list for more information.
-
-### Minor Variances
 
 #### Alternative Admin User shell
 
@@ -289,6 +289,11 @@ delay.
 #### Postgrey
 
 Connect postfix and postgrey via unix socket instead of TCP.
+
+#### Roundcube
+
+I install Roundcube from the github source rather than the distribution
+because the distributed version is ancient.
 
 ## Parameters
 
