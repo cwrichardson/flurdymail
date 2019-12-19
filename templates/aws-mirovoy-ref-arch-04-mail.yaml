@@ -807,6 +807,9 @@ Resources:
           config_03:
             -
               ConfigSet: "config_04"
+            # EPEL is where PostGrey, ClamAV, and SpamAssasin packages are,
+	    # so this is the first time we need it
+            - add_epel
             - config_amavisd
           # 04 Disable PostGrey, ClamAV, SpamAssassin
           config_04:
@@ -966,6 +969,18 @@ Resources:
                   - Fn::ImportValue: !Sub
                       '${DatabaseStackName}-MasterDBEndpoint'
                   - " >/dev/null 2>&1 </dev/null)"
+
+        add_epel:
+          commands:
+            01_enable_epel:
+              command: amazon-linux-extras enable epel
+              test: "! yum repolist enabled | grep epel"
+            02_clean_yum_metadata:
+              command: yum clean metadata
+              test: "yum repolist enabled | grep amzn2extra-epel"
+            03_install_epel:
+              command: yum install -y epel-release
+              test: "! yum repolist enabled | grep ^\\*epel"
 
         mount_swap:
           commands:
