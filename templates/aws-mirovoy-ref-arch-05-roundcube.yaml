@@ -169,8 +169,8 @@ Parameters:
     Type: String
   MailServerPrivateDNS:
     Default: ""
-    Description: 'The fully-qualified domain name for the primary mail server
-      (e.g., ip-10-0-1-1.eu-central-1.compute.internal)'
+    Description: 'The _internal_ fully-qualified domain name for the primary
+      mail server (e.g., ip-10-0-1-1.eu-central-1.compute.internal)'
     Type: String
   NumberOfSubnets:
     AllowedValues:
@@ -259,10 +259,9 @@ Parameters:
     Type: List<AWS::EC2::Subnet::Id>
   UseLDAP:
     AllowedValues:
-      - true
       - false
-    Description: Use LDAP address books.
-    Default: true
+    Description: Use LDAP address books. Not yet working.
+    Default: false
     Type: String
   Vpc:
     AllowedPattern: ^(vpc-)([a-z0-9]{8}|[a-z0-9]{17})$
@@ -535,6 +534,31 @@ Resources:
               mode: "000700"
               owner: "root"
               group: "root"
+            /tmp/zz-roundcube.conf:
+              content: !Sub |
+                <VirtualHost *:443>
+                  # There is currently a bug in Apache:
+                  # https://bz.apache.org/bugzilla/show_bug.cgi?id=59311
+                  #
+                  # such that it sends Upgrade headers when SSL is used. This is
+                  # against the spec, and in particular screws up at least
+                  # Safari. Since we're always using HTTPS, we shouldn't ever
+                  # need to send the Upgrade headers, so we just nuke it (at
+                  # least until the Apache bug is fixed)
+                  Header unset Upgrade
+                  ServerName ${DnsName}
+                  DocumentRoot /var/www/html/public_html
+                  <Directory "/var/www/html/public_html">
+                          AllowOverride All
+                          Order allow,deny
+                          Allow from all
+                  </Directory>
+                  ErrorLog /var/log/httpd/webmail-error.log
+                  # Possible values include: debug, info, notice, warn, error,
+                  # crit, alert, emerg.
+                  LogLevel warn
+                  CustomLog /var/log/httpd/webmail-access.log combined
+                </VirtualHost>
             /tmp/mysql80.rpm:
               source: !Join
                 - ''
@@ -636,18 +660,10 @@ Resources:
               # so the loadbalancer correctly detects instance health
               command: touch /var/www/html/index.html
               test: "[ ! -e /var/www/html/index.html ]"
-            11_apache_header_update_fix:
-              # There is currently a bug in Apache:
-              # https://bz.apache.org/bugzilla/show_bug.cgi?id=59311
-              #
-              # such that it sends Upgrade headers when SSL is used. This is
-              # against the spec, and in particular screws up at least Safari.
-              # Since we're always using HTTPS, we shouldn't ever need to send
-              # the Upgrade headers, so we just nuke it (at least until the
-              # Apache bug is fixed)
-              command: "sed -i '/^<VirtualHost/a Header unset Upgrade' ssl.conf"
+            11_configure_apache:
+              command: mv /tmp/zz-roundcube.conf .
               cwd: /etc/httpd/conf.d
-              test: "! grep -l Upgrade ssl.conf"
+              test: "[ -f /tmp/zz-roundcube.conf ]"
             12_get_mysql_repo:
               command: "yum -y localinstall mysql80.rpm"
               cwd: /tmp
