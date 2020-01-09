@@ -1457,7 +1457,7 @@ Resources:
                         !Sub '${DatabaseStackName}-MasterDBEndpoint'
               mode: "000640"
               owner: "root"
-              group: "root"
+              group: "postfix"
             /etc/postfix/mysql_alias.cf:
               content:
                 Fn::Sub:
@@ -1475,7 +1475,7 @@ Resources:
                         !Sub '${DatabaseStackName}-MasterDBEndpoint'
               mode: "000640"
               owner: "root"
-              group: "root"
+              group: "postfix"
             /etc/postfix/mysql_domains.cf:
               content:
                 Fn::Sub:
@@ -1493,7 +1493,7 @@ Resources:
                         !Sub '${DatabaseStackName}-MasterDBEndpoint'
               mode: "000640"
               owner: "root"
-              group: "root"
+              group: "postfix"
 
             /tmp/postfix_tls.cf:
               content: !Sub |
