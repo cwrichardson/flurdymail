@@ -57,6 +57,7 @@ Metadata:
         Parameters:
           - SshAccessCidr
           - CreateMailSecGroup
+          - CreateWebMailSecGroup
       -
         Label:
           default: Amazon MySQL RDS Parameters
@@ -155,6 +156,8 @@ Metadata:
         default: Availability Zones
       CreateMailSecGroup:
         default: Create a security group for mail servers
+      CreateWebMailSecGroup:
+        default: Create a security group for webmail servers
       DataSubnet1Cidr:
         default: Data Subnet 1
       DataSubnet2Cidr:
@@ -330,6 +333,13 @@ Parameters:
       - 'False'
     Default: 'True'
     Description: Create a security group for use by mail servers
+    Type: String
+  CreateWebMailSecGroup:
+    AllowedValues:
+      - 'True'
+      - 'False'
+    Default: 'True'
+    Description: Create a security group for use by webmail servers
     Type: String
   CreateReplica:
     AllowedValues:
@@ -804,6 +814,8 @@ Resources:
         SshAccessCidr:
           !Ref SshAccessCidr
         CreateMailSecGroup:
+          !Ref CreateMailSecGroup
+        CreateWebMailSecGroup:
           !Ref CreateMailSecGroup
         Vpc:
           !GetAtt [myvpc, Outputs.Vpc]
