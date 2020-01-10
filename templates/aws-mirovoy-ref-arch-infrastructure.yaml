@@ -343,7 +343,7 @@ Parameters:
     AllowedValues:
       - true
       - false
-    Default: true
+    Default: false
     Description: "Indicates whether the DB instances in the cluster are
       encrypted. NOTE: if you select t2.micro as the instance type, then this
       must be set to 'false', as encryption at rest is unsupported for that
@@ -372,7 +372,7 @@ Parameters:
       - db.r4.8xlarge
       - db.r4.16xlarge
     ConstraintDescription: Must be a valid RDS instance class.
-    Default: db.t2.small
+    Default: db.t2.micro
     Description: The Amazon RDS database instance class. Note, t2.small is
       the smallest instance type that supports encryption at rest. If you
       switch to t2.micro, you'll need to set encryption to "false" below.
@@ -392,7 +392,9 @@ Parameters:
     AllowedPattern: ^([a-z0-9A-Z`~!#$%^&*()_+,\\-])*$
     ConstraintDescription: "Must be letters (upper or lower), numbers, and
       these special characters '_'`~!#$%^&*()_+,-"
-    Description: The Amazon RDS "root" user password
+    Description: The Amazon RDS "root" user password. If you wish to use
+      a username other than "root", it can be configured below under
+      AWS MySQL RDS Parameters.
     MaxLength: 41
     MinLength: 8
     NoEcho: true
