@@ -935,9 +935,9 @@ Resources:
                         ('postmaster@example.com','postmaster@localhost'),
                         ('abuse@example.com','abuse@localhost');
                 REPLACE INTO users (id,name,maildir,crypt) VALUES
-                        ('xandros@example.com','xandros','xandros/',
+                        ('xandros@example.com','xandros','example.com/xandros/',
                             SHA2('${XandrosPass}', 256)),
-                        ('vivita@example.com','xandros','xandros/',
+                        ('vivita@example.com','vivita','example.com/vivita/',
                             SHA2('${VivitaPass}', 256));
                 REPLACE INTO aliases (mail,destination) VALUES
                         ('xandros@example.com','xandros@example.com'),
@@ -1825,8 +1825,8 @@ Resources:
                     password_query = SELECT id AS user, crypt AS password, \
                             CONCAT(home,'/',maildir) AS userdb_home, \
                             uid AS userdb_uid, gid AS userdb_gid, \
-                            CONCAT(home,'/',maildir) AS userdb_mail FROM \
-                            users WHERE id='%u'
+                            CONCAT('maildir:',home,'/',maildir) AS userdb_mail \
+                            FROM users WHERE id='%u'
                   - RDSHost:
                       Fn::ImportValue:
                         !Sub '${DatabaseStackName}-MasterDBEndpoint'

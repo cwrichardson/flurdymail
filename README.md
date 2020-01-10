@@ -223,6 +223,15 @@ good way to set the GID with CloudFormation, so it gets set automatically.
 Jon Jerome sets it to "yes". I set it to "required". (It's optional for
 server-server SNMP communication, but why let it be optional for IMAP?)
 
+#### Dovecot user query
+
+Jon Jerome uses prefetch to get all of the information in one go. Mostly
+this just works, but in the event you have Roundcube enabled, and a user
+in the database, but that user has not yet received any mail, Dovecot gets
+confused about the directory structure. To fix this (and prevent errors in
+Roundcube) we modify the password_query to prefix "maildir:" to the
+maildir path.
+
 #### SSL Certificates
 
 ##### SSL for Email: Let's Encrypt
