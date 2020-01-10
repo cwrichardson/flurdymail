@@ -74,7 +74,11 @@ _**Chris Richardson**_
 ## TL;DR — Launch the Stack
 To launch the entire stack and deploy a Flurdy primary (and, optionally,
 backup) email server on AWS, click on one of the **Launch Stack** links
-below. *Caveat emptor*, you should not do this unless you're familiar both
+below. When you're done, point your DNS entries for webmail.example.com
+and phpmyadmin.example.com (replaced with your correct domain names) to
+the load balancer.
+
+*Caveat emptor*, you should not do this unless you're familiar both
 with the Flurdy email server setup, and AWS CloudFormation.
 
 *NB*: If you enable phpMyAdmin or Roundcube support, you *must* create a
