@@ -32,6 +32,7 @@ Metadata:
           default: Optional security groups to create
         Parameters:
           - CreateMailSecGroup
+          - CreateWebMailSecGroup
 
     ParameterLabels:
       AppSubnet1Cidr:
@@ -40,6 +41,8 @@ Metadata:
         default: App Subnet 2
       CreateMailSecGroup:
         default: Create a security group for mail servers
+      CreateWebMailSecGroup:
+        default: Create a security group for webmail
       NumberOfAZs:
         default: Number of Availability Zones
       SshAccessCidr:
@@ -66,6 +69,20 @@ Parameters:
       NAT instances in Public Availability Zone 1 will accept connections
       on ports 80 and 443 from this CIDR block.
     Type: String
+  CreateMailSecGroup:
+    AllowedValues:
+      - 'True'
+      - 'False'
+    Default: 'True'
+    Description: Create a security group for use by mail servers
+    Type: String
+  CreateWebMailSecGroup:
+    AllowedValues:
+      - 'True'
+      - 'False'
+    Default: 'True'
+    Description: Create a security group for use by webmail servers
+    Type: String
   SshAccessCidr:
     AllowedPattern: '((\d{1,3})\.){3}\d{1,3}/\d{1,2}'
     Description: The CIDR IP range that is permitted to SSH to bastion
@@ -77,13 +94,6 @@ Parameters:
     AllowedPattern: ^(vpc-)([a-z0-9]{8}|[a-z0-9]{17})$
     Description: The Vpc Id of an existing Vpc.
     Type: AWS::EC2::VPC::Id
-  CreateMailSecGroup:
-    AllowedValues:
-      - 'True'
-      - 'False'
-    Default: 'True'
-    Description: Create a security group for use by mail servers
-    Type: String
 
 Conditions:
 
@@ -91,6 +101,8 @@ Conditions:
     !Not [!Equals ['', !Ref AppSubnet2Cidr]]
   WantsMail:
     !Equals ['True', !Ref CreateMailSecGroup]
+  WantsWebMail:
+    !Equals ['True', !Ref CreateWebMailSecGroup]
 
 Resources:
 
@@ -243,6 +255,23 @@ Resources:
       VpcId:
         !Ref Vpc
 
+  WebmailSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: WantsWebMail
+    Properties:
+      GroupDescription: Security group for webmail instances
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref PublicAlbSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+      VpcId:
+        !Ref Vpc
+
 Outputs:
   BastionSecurityGroup:
     Description: Security group for jump/bastion servers
@@ -262,3 +291,7 @@ Outputs:
   PublicAlbSecurityGroup:
     Description: Security group for the public load balancer
     Value: !Ref PublicAlbSecurityGroup
+  WebmailSecurityGroup:
+    Condition: WantsWebMail
+    Description: Security group for webmail servers
+    Value: !Ref WebmailSecurityGroup
