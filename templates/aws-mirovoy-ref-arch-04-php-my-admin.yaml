@@ -452,6 +452,26 @@ Resources:
               mode: "000644"
               owner: "root"
               group: "root"
+            /tmp/zz-phpmyadmin.conf:
+              content: !Sub |
+                <VirtualHost *:443>
+                  # There is currently a bug in Apache:
+                  # https://bz.apache.org/bugzilla/show_bug.cgi?id=59311
+                  #
+                  # such that it sends Upgrade headers when SSL is used. This is
+                  # against the spec, and in particular screws up at least
+                  # Safari. Since we're always using HTTPS, we shouldn't ever
+                  # need to send the Upgrade headers, so we just nuke it (at
+                  # least until the Apache bug is fixed)
+                  Header unset Upgrade
+                  ServerName ${DnsName}
+                  DocumentRoot /var/www/html/phpMyAdmin
+                  <Directory "/var/www/html/phpMyAdmin">
+                          AllowOverride All
+                          Order allow,deny
+                          Allow from all
+                  </Directory>
+                </VirtualHost>
           commands:
             01_bootstrap:
               command: !If
@@ -502,18 +522,10 @@ Resources:
               # so the loadbalancer correctly detects instance health
               command: touch /var/www/html/index.html
               test: "[ ! -e /var/www/html/index.html ]"
-            12_apache_header_update_fix:
-              # There is currently a bug in Apache:
-              # https://bz.apache.org/bugzilla/show_bug.cgi?id=59311
-              #
-              # such that it sends Upgrade headers when SSL is used. This is
-              # against the spec, and in particular screws up at least Safari.
-              # Since we're always using HTTPS, we shouldn't ever need to send
-              # the Upgrade headers, so we just nuke it (at least until the
-              # Apache bug is fixed)
-              command: "sed -i '/^<VirtualHost/a Header unset Upgrade' ssl.conf"
+            12_configure_apache:
+              command: mv /tmp/zz-phpmyadmin.conf .
               cwd: /etc/httpd/conf.d
-              test: "! grep -l Upgrade ssl.conf"
+              test: "[ -f /tmp/zz-phpmyadmin.conf ]"
           services:
             sysvinit:
               httpd:
