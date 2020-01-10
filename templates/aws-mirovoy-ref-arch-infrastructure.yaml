@@ -361,7 +361,7 @@ Parameters:
     Type: String
   DatabaseCmk:
     Description: The ARN of the AWS KMS Customer Master Key (CMK) to encrypt
-    the database cluster.
+      the database cluster.
     Type: String
   DatabaseInstanceType:
     AllowedValues:

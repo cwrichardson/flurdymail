@@ -808,7 +808,7 @@ Resources:
             -
               ConfigSet: "config_04"
             # EPEL is where PostGrey, ClamAV, and SpamAssasin packages are,
-	    # so this is the first time we need it
+            # so this is the first time we need it
             - add_epel
             - config_amavisd
           # 04 Disable PostGrey, ClamAV, SpamAssassin
