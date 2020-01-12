@@ -308,6 +308,12 @@ Connect postfix and postgrey via unix socket instead of TCP.
 I install Roundcube from the github source rather than the distribution
 because the distributed version is ancient.
 
+#### Extend - SPF Verification
+
+The package system for Amazon Linux uses slightly different packages. I
+install python3, and then use pip to install pypolicyd-spf, pyspf, and py3dns.
+The configuration is in /etc/python-policyd-spf.
+
 ## Parameters
 
 Almost all configuration that is described in the Flurdy documentation

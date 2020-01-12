@@ -67,6 +67,7 @@ Metadata:
           - RelayHost
           - RootMailRecipient
           - InetProtocols
+          - EnableSpfChecks
       - Label:
           default: SSL Parameters
         Parameters:
@@ -109,6 +110,7 @@ Metadata:
           - RecipientLimit
           - SoftErrLimit
           - HardErrLimit
+          - SpfTimeLimit
 
     ParameterLabels:
       AccountEmail:
@@ -143,6 +145,8 @@ Metadata:
         default: DNS Zone for SSL cert verification
       EC2KeyName:
         default: Existing Key Pair
+      EnableSpfChecks:
+        default: Enable Postfix SPF verifcation scoring
       ExternalTestEmail:
         default: External email to test mail forwarding
       HardErrLimit:
@@ -199,6 +203,8 @@ Metadata:
         default: S3 Directory for /etc/skel files
       SoftErrLimit:
         default: How many errors before backoff
+      SpfTimeLimit:
+        default: Timeout for policyd-spf
       SSLDebug:
         default: Enable acme.sh debugging
       StorageStackName:
@@ -370,6 +376,10 @@ Parameters:
       true, then those defaults will be changed to the host and domain
       you configured as the primary server name, above."
     Type: String
+  SpfTimeLimit:
+    Default: 3600
+    Description: "Timeout for policyd-spf, from Flurdy extras"
+    Type: Number
   SSLDebug:
     AllowedValues:
       - true
@@ -392,6 +402,13 @@ Parameters:
       alphabetic character and can't be longer than 128 characters."
     Description: The name of the stack that was used to create the RDS instances
     MaxLength: 128
+    Type: String
+  EnableSpfChecks:
+    AllowedValues:
+      - true
+      - false
+    Default: true
+    Description: "Enable SPF Verification from Flurdy Extended"
     Type: String
   ExternalTestEmail:
     Default: ''
@@ -683,6 +700,8 @@ Conditions:
     - !And
       - Condition: EnableClamAV
       - !Not [!Equals [!Ref DisableServices, '02 Disable PostGrey']]
+  EnableSpf:
+    !Equals [!Ref EnableSpfChecks, true]
   GetSSLTest:
     !Equals [!Ref CertSource, 'generate test']
   GetSSLReal:
@@ -801,6 +820,9 @@ Resources:
             - add_admin
             -
               ConfigSet: "deploy_baseserver"
+          enable_spf:
+            - spf_verify
+            - restart_postfix
           # 01 The Kitchen Sink
           config_01:
             -
@@ -1340,25 +1362,25 @@ Resources:
                 - - ./acme.sh --install --home /usr/local/sbin
                   - --config-home /etc/acmesh
                   - Fn::If:
-                    - SetAccountEmail
-                    - Fn::Join:
-                      - ' '
-                      - - --accountemail
-                        - !Ref AccountEmail
-                    - ''
+                      - SetAccountEmail
+                      - Fn::Join:
+                          - ' '
+                          - - --accountemail
+                            - !Ref AccountEmail
+                      - ''
               cwd: /tmp/acmesh
             02_issue_ssl_cert:
               command: !Join
                 - ' '
                 - - acme.sh
                   - Fn::If:
-                    - SetSSLDebug
-                    - --debug
-                    - ''
+                      - SetSSLDebug
+                      - --debug
+                      - ''
                   - Fn::If:
-                    - GetSSLTest
-                    - --test
-                    - ''
+                      - GetSSLTest
+                      - --test
+                      - ''
                   - --config-home /etc/acmesh
                   - --issue -d
                   - !Ref PrimaryServerName
@@ -1370,30 +1392,30 @@ Resources:
                 - ' '
                 - - acme.sh
                   - Fn::If:
-                    - SetSSLDebug
-                    - --debug
-                    - ''
+                      - SetSSLDebug
+                      - --debug
+                      - ''
                   - --config-home /etc/acmesh
                   - --install-cert -d
                   - !Ref PrimaryServerName
                   - --cert-file
                   - Fn::Join:
-                    - ''
-                    - - /etc/pki/dovecot/certs/
-                      - !Ref PrimaryServerName
-                      - .cert.pem
+                      - ''
+                      - - /etc/pki/dovecot/certs/
+                        - !Ref PrimaryServerName
+                        - .cert.pem
                   - --fullchain-file
                   - Fn::Join:
-                    - ''
-                    - - /etc/pki/dovecot/certs/
-                      - !Ref PrimaryServerName
-                      - .chain.pem
+                      - ''
+                      - - /etc/pki/dovecot/certs/
+                        - !Ref PrimaryServerName
+                        - .chain.pem
                   - --key-file
                   - Fn::Join:
-                    - ''
-                    - - /etc/pki/dovecot/private/
-                      - !Ref PrimaryServerName
-                      - .key
+                      - ''
+                      - - /etc/pki/dovecot/private/
+                        - !Ref PrimaryServerName
+                        - .key
 
         install_mailserver:
           packages:
@@ -1425,6 +1447,7 @@ Resources:
                   - !Ref AWS::StackName
                   - ' --resource MailServerInstance --configsets '
                   - !If [NoAdminUser, deploy_baseserver, deploy_with_alt_admin]
+                  - !If [EnableSpf, ",enable_spf", ""]
                   - '  --region '
                   - !Ref AWS::Region
                   - |
@@ -2350,7 +2373,7 @@ Resources:
             02_add_postgrey_to_postfix:
               command: !Join
                 - ''
-                - - sed -i "s;[[:blank:]]reject_unauth_destination,.*;
+                - - sed -i "s;^[[:blank:]]reject_unauth_destination,.*;
                   - \ reject_unauth_destination,\n\ \ \ \ check_policy_service
                   - ' unix:postgrey/socket, permit;" main.cf'
               cwd: /etc/postfix
@@ -2359,6 +2382,61 @@ Resources:
               postgrey:
                 enabled: !If [DontStart, "false", "true"]
                 ensureRunning: !If [DontStart, "false", "true"]
+
+        spf_verify:
+          packages:
+            yum:
+              python3-pip: []
+          commands:
+            01_install_pypolicyd:
+              command: "pip3 install pypolicyd-spf pyspf py3dns"
+              test: "which pip3"
+            02_comment_HELO_reject:
+              command: sed -i 's/^HELO_reject/# HELO_reject/' policyd-spf.conf
+              cwd: /etc/python-policyd-spf
+              test: "[[ -f policyd-spf.conf ]]"
+            03_comment_Mail_From_reject:
+              command: sed -i 's/^Mail_From/# Mail_From/' policyd-spf.conf
+              cwd: /etc/python-policyd-spf
+              test: "[[ -f policyd-spf.conf ]]"
+            04_HELO_reject_false:
+              command: !Join
+                - ' '
+                - - sed -i '/^# HELO_reject.*/a HELO_reject = False/'
+                  - policyd-spf.conf
+              cwd: /etc/python-policyd-spf
+              test: grep "^# HELO_reject"  policyd-spf.conf
+            05_Mail_From_false:
+              command: !Join
+                - ' '
+                - - sed -i '/^# Mail_From.*/a Mail_From_reject = False/'
+                  - policyd-spf.conf
+              cwd: /etc/python-policyd-spf
+              test: grep "^# Mail_From"  policyd-spf.conf
+            06_create_policyd_user:
+              command: useradd -rMs /sbin/nologin policyd-spf
+            07_configure_postfix_master:
+              command: !Join
+                - ''
+                - - "echo 'policyd-spf  unix  -       n       n       -"
+                  - "       0       spawn' >> master.cf && "
+                  - "echo '   user=policyd-spf argv=/usr/bin/policyd-spf'"
+                  - " >> master.cf"
+              cwd: /etc/postfix
+            08_configure_spf_timeout:
+              command: !Join
+                - ''
+                - - 'echo "policyd-spf_time_limit = '
+                  - !Ref SpfTimeLimit
+                  - '" >> main.cf'
+              cwd: /etc/postfix
+            09_add_policyd-spf_to_postfix:
+              command: !Join
+                - ''
+                - - sed -i "s;^[[:blank:]]reject_unauth_destination,.*;
+                  - \ reject_unauth_destination,\n\ \ \ \ check_policy_service
+                  - ' unix:private/policyd-spf,;" main.cf'
+              cwd: /etc/postfix
 
     Properties:
       IamInstanceProfile: !Ref MailInstanceProfile
@@ -2379,7 +2457,8 @@ Resources:
             yum update -y
             yum install -y aws-cfn-bootstrap
             /opt/aws/bin/cfn-init \
-              --configsets ${WantSwap}${DeployType}${InsertData},${Components} \
+              --configsets \
+              ${WantSwap}${DeployType}${InsertData},${Components}${SPF} \
               --verbose --stack ${AWS::StackName} \
               --resource MailServerInstance --region ${AWS::Region}
             /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} \
@@ -2395,7 +2474,8 @@ Resources:
                           !If [EnableTLS, "config_04",
                                !If [EnableSASL, "config_05",
                                     !If [EnableDovecot, "config_06",
-                                         "config_07"]]]]]]}
+                                         "config_07"]]]]]],
+             SPF: !If [EnableSpf, ",enable_spf", ""]}
 
     # CreationPolicy:
     #   ResourceSignal:
