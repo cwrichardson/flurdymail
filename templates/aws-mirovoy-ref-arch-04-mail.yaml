@@ -73,6 +73,7 @@ Metadata:
           - CertSource
           - AccountEmail
           - DNSZone
+          - DNSSleep
           - CertFileDir
       - Label:
           default: Dovecot Parameters
@@ -136,6 +137,8 @@ Metadata:
         default: Disable virus checks, even if amavisd is running
       DisableServices:
         default: Services to disable for testing purposes
+      DNSSleep:
+        default: Time to wait for DNS propogation for  SSL cert verification
       DNSZone:
         default: DNS Zone for SSL cert verification
       EC2KeyName:
@@ -311,6 +314,14 @@ Parameters:
       amavisd up and running and passing messages back and forth from
       postfix."
     Type: String
+  DNSSleep:
+    Default: 180
+    Description: 'Configure the wait time to make sure that DNS route
+      properly propagate. 180 seconds seems to work in most cases, but
+      YMMV. If you''re running into failures for issueing the cert, turn
+      on acme debugging, below, and if the problem is with verification of the
+      DNS TXT entry, try upping this.'
+    Type: Number
   DNSZone:
     Description: 'The Route53 Hosted Zone that includes the mail server. This
       will be used for automatic authorization during the creation process for
@@ -1352,6 +1363,8 @@ Resources:
                   - --issue -d
                   - !Ref PrimaryServerName
                   - --dns dns_aws
+                  - --dnssleep
+                  - !Ref DNSSleep
             03_install_ssl_cert:
               command: !Join
                 - ' '
