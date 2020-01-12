@@ -32,6 +32,8 @@ Metadata:
           - MailServerPrivateDNS
           - Skin
           - UseLDAP
+          - EnableDebug
+          - AllowFakeCert
       - Label:
           default: ec2 Autoscaling and Instance Configuration
         Parameters:
@@ -67,6 +69,8 @@ Metadata:
         default: Alternative superuser account to create
       AdminPubKey:
         default: SSH public key for the AdminUser
+      AllowFakeCert:
+        default: Allow fake certificate from LetsEncrypt
       AlternativeIAMRole:
         default: Alternative IAM Role
       AlternativeInitializationScript:
@@ -75,6 +79,10 @@ Metadata:
         default: Name for the stack that created the RDS instances
       DnsName:
         default: 'The FQDN for Roundcube (e.g., webmail.example.com)'
+      EC2KeyName:
+        default: Existing Key Pair
+      EnableDebug:
+        default: Enable Roundcube debugging
       EnvironmentVariables:
         default: Environment Variables
       RoundcubeAMIOS:
@@ -83,8 +91,6 @@ Metadata:
         default: Instance Type
       RoundcubeSecurityGroup:
         default: Roundcube Security Group
-      EC2KeyName:
-        default: Existing Key Pair
       MailServerPrivateDNS:
         default: Private DNS Name for the primary mail server
       NumberOfSubnets:
@@ -121,6 +127,14 @@ Parameters:
     Description: 'The public key text to be installed in the authorized_hosts
       file for the admin user. Will also be installed as an accepted key for
       the default admin user.'
+    Type: String
+  AllowFakeCert:
+    AllowedValues:
+      - true
+      - false
+    Default: false
+    Description: Add the LetsEncrypt root and intermediate certificates for
+      fake LetsEncrypt to the trusted CAs
     Type: String
   AlternativeIAMRole:
     Description: 'Specify an existing IAM Role name to attach to the server.
@@ -161,6 +175,14 @@ Parameters:
     Description: Name of an EC2 KeyPair. Your Roundcube instances will launch
       with this KeyPair.
     Type: AWS::EC2::KeyPair::KeyName
+  EnableDebug:
+    AllowedValues:
+      - true
+      - false
+    Default: false
+    Description: Turn on verbose Roundcube debugging to syslog (goes to
+      /var/log/messages).
+    Type: String
   EnvironmentVariables:
     Description: 'Specify a comma separated list of environment variables for
       use in bootstrapping by the alternative initialization script. Variables
@@ -273,6 +295,10 @@ Conditions:
     !Not [!Equals [!Ref AdminUser, '']]
   CreateIAMRole:
     !Equals [!Ref AlternativeIAMRole, '']
+  Debug:
+    !Equals [!Ref EnableDebug, true]
+  FakeSSL:
+    !Equals [!Ref AllowFakeCert, true]
   NumberOfSubnets1:
     !Equals [1, !Ref NumberOfSubnets]
   NumberOfSubnets2:
@@ -593,9 +619,9 @@ Resources:
                         'mysql://${RoundcubeDBUser}:PASSWORD' .
                         '@${RDSHost}/${RoundcubeDBName}';
                     $config['log_driver'] = 'syslog';
-                    $config['default_host'] = '${MailServerPrivateDNS}';
+                    $config['default_host'] = 'imaps://${MailServerPrivateDNS}';
                     $config['default_port'] = 993;
-                    $config['smtp_server'] = '${MailServerPrivateDNS}';
+                    $config['smtp_server'] = 'tls://${MailServerPrivateDNS}';
                     $config['smtp_port'] = 587;
                     $config['smtp_user'] = '%u';
                     $config['smtp_pass'] = '%p';
@@ -607,9 +633,40 @@ Resources:
                         'zipdownload',
                     );
                     $config['skin'] = '${Skin}';
+                    $config['imap_conn_options'] = array(
+                            'ssl' => array(
+                                    'verify_peer_name' => false,
+                            ),
+                    );
+
+                    $config['smtp_conn_options'] = array(
+                            'ssl' => array(
+                                    'verify_peer_name' => false,
+                            ),
+                    );
+                    ${DebugText}
                   - RDSHost:
                       Fn::ImportValue:
                         !Sub '${DatabaseStackName}-MasterDBEndpoint'
+                    DebugText:
+                      Fn::If:
+                        - Debug
+                        - |
+                          // system error reporting, sum of: 1 = log; 4 = show
+                          $config['debug_level'] = 1;
+
+                          // Log SQL queries
+                          $config['sql_debug'] = true;
+
+                          // Log IMAP conversation
+                          $config['imap_debug'] = true;
+
+                          // Log LDAP conversation
+                          $config['ldap_debug'] = true;
+
+                          // Log SMTP conversation
+                          $config['smtp_debug'] = true;
+                        - ''
               mode: "000400"
               owner: "root"
               group: "root"
@@ -806,6 +863,32 @@ Resources:
             24_fix_permissions:
               command: chown -R apache:apache *
               cwd: /var/www/html
+            25_get_ca_ssl_if_reqd:
+              command: !If
+                - FakeSSL
+                - !Join
+                  - ' '
+                  - - wget https://letsencrypt.org/certs/fakelerootx1.pem &&
+                    - wget
+                    - https://letsencrypt.org/certs/fakeleintermediatex1.pem
+                - echo "Fake CA cert chain not required"
+              cwd: /tmp
+            25_install_fake_ca_cert:
+              command: !If
+                - FakeSSL
+                - !Join
+                  - ' '
+                  - - cat fakeleintermediatex1.pem >> fakelerootx1.pem &&
+                    - cp fakelerootx1.pem
+                    - /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt
+                    - '&& chmod ugo-w'
+                    - /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt
+                    - '&& cp'
+                    - /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt
+                    - /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+                - echo "Fake CA cert chain not installed"
+              cwd: /tmp
+              test: "[[ -f fakelerootx1.pem && -f fakeleintermediatex1.pem ]]"
           services:
             sysvinit:
               httpd:
