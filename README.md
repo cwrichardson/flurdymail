@@ -314,6 +314,18 @@ The package system for Amazon Linux uses slightly different packages. I
 install python3, and then use pip to install pypolicyd-spf, pyspf, and py3dns.
 The configuration is in /etc/python-policyd-spf.
 
+#### Extend - DKIM
+
+I'm not actually sure this matters, but the configuration syntax for the
+version of OpenDKIM that gets installed by yum appears to have slightly
+different syntax. Instead of
+
+SOCKET="local:/var/spool/postfix/var/run/opendkim/opendkim.sock"
+
+it is
+
+Socket local:/var/spool/postfix/var/run/opendkim/opendkim.sock
+
 ## Parameters
 
 Almost all configuration that is described in the Flurdy documentation

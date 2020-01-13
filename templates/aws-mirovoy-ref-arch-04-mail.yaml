@@ -67,7 +67,12 @@ Metadata:
           - RelayHost
           - RootMailRecipient
           - InetProtocols
+      - Label:
+          default: Postfix Extra Config
+        Parameters:
           - EnableSpfChecks
+          - EnableOpenDkim
+          - OpenDkimDomains
       - Label:
           default: SSL Parameters
         Parameters:
@@ -145,6 +150,8 @@ Metadata:
         default: DNS Zone for SSL cert verification
       EC2KeyName:
         default: Existing Key Pair
+      EnableOpenDkim:
+        default: Install DKIM
       EnableSpfChecks:
         default: Enable Postfix SPF verifcation scoring
       ExternalTestEmail:
@@ -181,6 +188,8 @@ Metadata:
         default: Mirovvoy CloudFront Assets S3 bucket name
       MYS3KeyPrefix:
         default: Mirovoy CloudFront Assets Bastion S3 bucket key prefix
+      OpenDkimDomains:
+        default: Open DKIM Domains
       Origin:
         default: My origin
       PrimaryServerName:
@@ -336,6 +345,11 @@ Parameters:
       the name of the primary server, then this should be the Hosted Zone ID
       for the "mail.example.com" zone.'
     Type: List<AWS::Route53::HostedZone::Id>
+  OpenDkimDomains:
+    Default: ""
+    Description: "Domain(s) whose email should be signed by opendkim. A comma
+      separated list without spaces (e.g., example,com,example.co.uk)"
+    Type: String
   PrimaryServerName:
     AllowedPattern: ^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$
     Default: 'mail.example.com'
@@ -402,6 +416,13 @@ Parameters:
       alphabetic character and can't be longer than 128 characters."
     Description: The name of the stack that was used to create the RDS instances
     MaxLength: 128
+    Type: String
+  EnableOpenDkim:
+    AllowedValues:
+      - true
+      - false
+    Default: true
+    Description: "Enable Open DKIM from Flurdy Extended"
     Type: String
   EnableSpfChecks:
     AllowedValues:
@@ -700,6 +721,8 @@ Conditions:
     - !And
       - Condition: EnableClamAV
       - !Not [!Equals [!Ref DisableServices, '02 Disable PostGrey']]
+  EnableDkim:
+    !Equals [!Ref EnableOpenDkim, true]
   EnableSpf:
     !Equals [!Ref EnableSpfChecks, true]
   GetSSLTest:
@@ -820,6 +843,9 @@ Resources:
             - add_admin
             -
               ConfigSet: "deploy_baseserver"
+          enable_dkim:
+            - dkim_install
+            - restart_postfix
           enable_spf:
             - spf_verify
             - restart_postfix
@@ -1448,6 +1474,7 @@ Resources:
                   - ' --resource MailServerInstance --configsets '
                   - !If [NoAdminUser, deploy_baseserver, deploy_with_alt_admin]
                   - !If [EnableSpf, ",enable_spf", ""]
+                  - !If [EnableDkim, ",enable_dkim", ""]
                   - '  --region '
                   - !Ref AWS::Region
                   - |
@@ -2383,6 +2410,114 @@ Resources:
                 enabled: !If [DontStart, "false", "true"]
                 ensureRunning: !If [DontStart, "false", "true"]
 
+        dkim_install:
+          packages:
+            yum:
+              opendkim: []
+          files:
+            /tmp/dkim_domains:
+              content: !Ref OpenDkimDomains
+          commands:
+            01_comment_socket:
+              command: sed -i 's/^Socket/# Socket/' opendkim.conf
+              cwd: /etc
+              test: "[[ -f opendkim.conf ]]"
+            02_add_socket:
+              command: !Join
+                - ' '
+                - - "sed -i '/^# Socket/a Socket "
+                  - "local:/var/spool/postfix/var/run/opendkim/opendkim.sock'"
+                  - opendkim.conf
+              cwd: /etc
+              test: "[[ -f opendkim.conf ]]"
+            03_mk_opendkim_dir:
+              command: mkdir -p /var/spool/postfix/var/run/opendkim
+              test: "[[ ! -d /var/spool/postfix/var/run/opendkim ]]"
+            04_chown_opendkim_dir:
+              command: !Join
+                - ''
+                - - chown opendkim:opendkim /var/spool/postfix/var/run/opendkim
+                  - ''
+              test: "[[ -d /var/spool/postfix/var/run/opendkim ]]"
+            05_add_postfix_to_opendkim:
+              command: usermod -G opendkim postfix
+            06_add_domains_to_opendkim:
+              command: !Join
+                - ''
+                - - "sed -i '/^# Domain/a Domain "
+                  - !Ref OpenDkimDomains
+                  - \nSubDomains\tyes
+                  - "' opendkim.conf"
+              cwd: /etc
+              test: "[[ -f opendkim.conf ]]"
+            07_enable_external_ignore_list:
+              command: !Join
+                - ' '
+                - - sed -i 's/^# ExternalIgnoreList/ExternalIgnoreList/'
+                  - opendkim.conf
+              cwd: /etc
+              test: "[[ -f opendkim.conf ]]"
+            08_enable_internal_hosts:
+              command: !Join
+                - ' '
+                - - sed -i 's/^# InternalHosts/InternalHosts/'
+                  - opendkim.conf
+              cwd: /etc
+              test: "[[ -f opendkim.conf ]]"
+            09_enable_key_table:
+              command: !Join
+                - ' '
+                - - sed -i 's/^# KeyTable/KeyTable/'
+                  - opendkim.conf
+              cwd: /etc
+              test: "[[ -f opendkim.conf ]]"
+            10_enable_signing_table:
+              command: !Join
+                - ' '
+                - - sed -i 's/^# SigningTable/SigningTable/'
+                  - opendkim.conf
+              cwd: /etc
+              test: "[[ -f opendkim.conf ]]"
+            11_disable_keyfile:
+              command: !Join
+                - ' '
+                - - sed -i 's/^KeyFile/# KeyFile/'
+                  - opendkim.conf
+              cwd: /etc
+              test: "[[ -f opendkim.conf ]]"
+            12_config_postfix_opendkim_milter:
+              command: !Join
+                - ' '
+                - - echo "milter_default_action = accept" >> main.cf &&
+                  - echo "smtpd_milters = unix:/var/run/opendkim/opendkim.sock"
+                  - '>> main.cf &&'
+                  - echo "non_smtpd_milters =
+                  - unix:/var/run/opendkim/opendkim.sock" >> main.cf
+              cwd: /etc/postfix
+            13_disable_amavisd_milter:
+              command: !Join
+                - ''
+                - - sed -i 's/unknown_recipient_checks/
+                  - unknown_recipient_checks,no_milters/' master.cf
+              cwd: /etc/postfix
+            14_gen_opendkim_keys:
+              command: !Join
+                - ' '
+                - - for a in `cat dkim_domains | tr "," "\n"`; do
+                  - opendkim-genkey -r -d $a;
+                  - sudo chown opendkim:opendkim default.*;
+                  - sudo mkdir /etc/opendkim/keys/$a;
+                  - sudo mv default.* /etc/opendkim/keys/$a/;
+                  - sudo echo "$a default._domainkey.$a" >>
+                  - /etc/opendkim/SigningTable;
+                  - sudo echo "default._domainkey.$a
+                  - $a:default:/etc/opendkim/keys/$a/default.private"
+                  - '>> /etc/opendkim/KeyTable; done'
+              cwd: /tmp
+              test: "[[ -f dkim_domains && -d /etc/opendkim ]]"
+            15_restart_opendkim:
+              command: systemctl restart opendkim
+
         spf_verify:
           packages:
             yum:
@@ -2458,7 +2593,7 @@ Resources:
             yum install -y aws-cfn-bootstrap
             /opt/aws/bin/cfn-init \
               --configsets \
-              ${WantSwap}${DeployType}${InsertData},${Components}${SPF} \
+              ${WantSwap}${DeployType}${InsertData},${Components}${SPF}${DKIM} \
               --verbose --stack ${AWS::StackName} \
               --resource MailServerInstance --region ${AWS::Region}
             /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} \
@@ -2475,7 +2610,8 @@ Resources:
                                !If [EnableSASL, "config_05",
                                     !If [EnableDovecot, "config_06",
                                          "config_07"]]]]]],
-             SPF: !If [EnableSpf, ",enable_spf", ""]}
+             SPF: !If [EnableSpf, ",enable_spf", ""],
+             DKIM: !If [EnableDkim, ",enable_dkim", ""]}
 
     # CreationPolicy:
     #   ResourceSignal:
