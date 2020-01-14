@@ -40,6 +40,11 @@ Metadata:
           - StorageStackName
           - UseSwap
           - PrimarySubnet
+      - Label:
+          default: Backup Mail EC2 Instance Parameters
+        Parameters:
+          - BackupServerName
+          - BackupMailInstanceType
           - BackupSubnet
       - Label:
           default: Create Admin User
@@ -126,6 +131,10 @@ Metadata:
         default: Alternative superuser account to create
       AdminPubKey:
         default: SSH public key for the AdminUser
+      BackupMailInstanceType:
+        default: Backup Mail Instance Type
+      BackupServerName:
+        default: The name of the backup mail server
       BackupSubnet:
         default: Subnet in which to place the backup mail server
       Banner:
@@ -263,6 +272,27 @@ Parameters:
       admin user (ec2-user). Probably just cut and paste the contents
       of your id_rsa.pub file for the user.'
     Type: String
+  BackupServerName:
+    AllowedPattern: ^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$
+    Default: 'mx2.example.com'
+    Description: 'The fully qualified domain name for the backup mail server.
+      In addition to being put into /etc/mailname, this will also be used for
+      the creation of a LetsEncrypt certificate, if you use LetsEncrypt, below.'
+    Type: String
+  BackupMailInstanceType:
+    AllowedValues:
+      - t2.nano
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+    ConstraintDescription: Must be a valid Amazon EC2 instance type.
+    Default: t2.nano
+    Description: The Amazon EC2 instance type for your web instances.
+    Type: String
+  BackupSubnet:
+    Description: 'Subnet in which to place the backup mail server.'
+    Type: List<AWS::EC2::Subnet::Id>
   Banner:
     Default: "$myhostname ESMTP $mail_name"
     Description: What to display when someone connects for SMTP.
@@ -357,6 +387,9 @@ Parameters:
       In addition to being put into /etc/mailname, this will also be used for
       the creation of a LetsEncrypt certificate, if you use LetsEncrypt, below.'
     Type: String
+  PrimarySubnet:
+    Description: 'Subnet in which to place the primary mail server.'
+    Type: List<AWS::EC2::Subnet::Id>
   SAFinalDest:
     AllowedValues:
       - D_PASS
@@ -629,12 +662,6 @@ Parameters:
     Description: The name of the stack that was used to create EBS volumes
     MaxLength: 128
     Type: String
-  PrimarySubnet:
-    Description: 'Subnet in which to place the primary mail server.'
-    Type: List<AWS::EC2::Subnet::Id>
-  BackupSubnet:
-    Description: 'Subnet in which to place the backup mail server.'
-    Type: List<AWS::EC2::Subnet::Id>
   UnknownLocalErrorCode:
     AllowedValues:
       - 450
@@ -701,6 +728,14 @@ Conditions:
       - !Not [!Equals
               [!Ref DisableServices,
                '05 Disable PostGrey, ClamAV, SpamAssassin, TLS']]
+
+  EnableTLSonBackup:
+    !Or
+    - Condition: EnablePostGrey
+    - Condition: EnableClamAV
+    - Condition: EnableSpamAssassin
+    - Condition: EnableTLS
+
   EnableSpamAssassin:
     !Or
     - Condition: DontStart
@@ -2618,6 +2653,882 @@ Resources:
     #     Count: 1
     #     Timeout: PT5M
 
+  BackupMailServerInstance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      Comment: Install the backup mail server
+      AWS::CloudFormation::Authentication:
+        S3AccessCreds:
+          type: "S3"
+          buckets: [!Ref MirovoyCFAssetsBucket]
+          roleName: !Ref MailInstanceRole
+      AWS::CloudFormation::Init:
+        configSets:
+          have_swap:
+            - mount_swap
+          deploy_baseserver:
+            - mount_log
+            - mount_spool
+            - add_mysql
+            - config_mysql
+            - install_mailserver
+          deploy_with_alt_admin:
+            - add_admin
+            -
+              ConfigSet: "deploy_baseserver"
+          enable_spf:
+            - spf_verify
+            - restart_postfix
+          # 01 Turn everything on
+          config_01:
+            -
+              ConfigSet: "config_02"
+            # EPEL is needed for spf_verify
+            - add_epel
+            - get_acmesh
+          # 02 Disable TLS
+          config_02:
+            - config_postfix
+
+        add_admin:
+          packages:
+            yum:
+              ksh: []
+          files:
+            /tmp/profile:
+              source: !Join
+                - ''
+                - - https://
+                  - !Sub ${MirovoyCFAssetsBucket}.s3-${AWS::Region}
+                  - !Sub .amazonaws.com/${MYS3KeyPrefix}${SkelFileDir}profile
+              mode: "000600"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
+            /tmp/shrc:
+              source: !Join
+                - ''
+                - - !Sub https://${MirovoyCFAssetsBucket}.s3-
+                  - !Sub ${AWS::Region}.amazonaws.com/
+                  - !Sub ${MYS3KeyPrefix}${SkelFileDir}shrc
+              mode: "000600"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
+            /tmp/adminpubkey.pub:
+              content: !Ref AdminPubKey
+              mode: "000600"
+              owner: "root"
+              group: "root"
+          commands:
+            # add skeleton files
+            01_add_profile:
+              command: "mv /tmp/profile /etc/skel/.profile"
+              test: "test -e /tmp/profile"
+            02_add_shrc:
+              command: "mv /tmp/shrc /etc/skel/.shrc"
+              test: "test -e /tmp/shrc"
+            # add user
+            03_add_user:
+              command: !Join
+                - ''
+                - - "/usr/sbin/useradd -G adm,wheel,systemd-journal "
+                  - "-s /usr/bin/ksh "
+                  - !Ref AdminUser
+              test: !Join
+                - ''
+                - - "test ! `/usr/bin/id -u "
+                  - !Ref AdminUser
+                  - " > /dev/null 2>&1`"
+            # install ssh key
+            04_put_pub_key_for_ec2_user:
+              command: !Join
+                - ''
+                - - "cat /tmp/adminpubkey.pub >> "
+                  - /home/ec2-user/.ssh/authorized_keys
+              test: "test -e /tmp/adminpubkey.pub"
+            05_create_ssh_dir:
+              command: "mkdir .ssh"
+              cwd: !Sub /home/${AdminUser}
+              test: "test ! -e .ssh"
+            06_add_to_auth_keys:
+              command: "cat /tmp/adminpubkey.pub >> .ssh/authorized_keys"
+              cwd: !Sub /home/${AdminUser}
+              test: "test -e /tmp/adminpubkey.pub"
+            07_chown:
+              command: !Sub chown -R ${AdminUser}:${AdminUser} .ssh
+              cwd: !Sub /home/${AdminUser}
+              test: "test -e .ssh"
+            08_set_dir_perm:
+              command: "chmod 700 .ssh"
+              cwd: !Sub /home/${AdminUser}
+              test: "test -e .ssh"
+            09_set_auth_keys_perm:
+              command: "chmod 600 .ssh/authorized_keys"
+              cwd: !Sub /home/${AdminUser}
+              test: "test -e .ssh/authorized_keys"
+            # enable sudo without password
+            10_allow_sudo:
+              command: !Join
+                - ''
+                - - !Sub echo ${AdminUser} ALL=\(ALL\) NOPASSWD:ALL
+                  - " >>/etc/sudoers.d/cloud-init"
+              test: !Join
+                - ''
+                - - "test ! `grep "
+                  - !Ref AdminUser
+                  - " /etc/sudoers.d/cloud-init >/dev/null 2>&1`"
+
+        add_epel:
+          commands:
+            01_enable_epel:
+              command: amazon-linux-extras enable epel
+              test: "! yum repolist enabled | grep epel"
+            02_clean_yum_metadata:
+              command: yum clean metadata
+              test: "yum repolist enabled | grep amzn2extra-epel"
+            03_install_epel:
+              command: yum install -y epel-release
+              test: "! yum repolist enabled | grep ^\\*epel"
+
+        mount_swap:
+          commands:
+            01_wait_for_volume:
+              command: !Join
+                - ''
+                - - "while [ ! -e /dev/xvdm ]; "
+                  - "do echo Waiting for EBS volume to attach; sleep 5; done"
+            02_make_swap:
+              command: "mkswap /dev/xvdm"
+              test: '! /usr/sbin/blkid | grep /dev/xvdm.*TYPE=\"swap\"'
+            03_swap_on:
+              command: "/usr/sbin/swapon /dev/xvdm"
+              test: "! /usr/sbin/swapon --show | grep /dev/xvdm"
+            04_persist_swap:
+              command: !Join
+                - ''
+                - - "echo UUID=`/usr/sbin/blkid | grep /dev/xvdm "
+                  - "| grep -o UUID.*[[:blank:]] "
+                  - "| cut -f2 -d\\\"` swap swap defaults 0 0"
+                  - " >>/etc/fstab"
+              test: !Join
+                - ''
+                - - "! grep `/usr/sbin/blkid | grep /dev/xvdm "
+                  - "| grep -o UUID.*[[:blank:]] "
+                  - "| cut -f2 -d\\\"` /etc/fstab"
+
+        mount_log:
+          files:
+            /tmp/journald.conf:
+              content: !Sub |
+                [Journal]
+                Storage=volatile
+              mode: "000644"
+              owner: "root"
+              group: "root"
+          commands:
+            01_save_journal_conf:
+              command: "mv journald.conf journald.save"
+              cwd: /etc/systemd
+              test: "test -f journald.conf"
+            02_conf_journal:
+              command: "mv /tmp/journald.conf ."
+              cwd: /etc/systemd
+              test: "test -f /tmp/journald.conf"
+            03_reload_journal:
+              command: "systemctl force-reload systemd-journald"
+              test: "systemctl is-active systemd-journald"
+            04_touch_audit:
+              command: "mkdir /tmp/audit"
+              test: "test ! -d /tmp/audit"
+            05_restrict_audit_dir:
+              command: "chmod 700 /tmp/audit"
+              test: "test -d /tmp/audit"
+            06_conf_audit:
+              command: "sed -i 's;/var/log;/tmp;' auditd.conf"
+              cwd: /etc/audit
+              test: "grep /var/log auditd.conf"
+            # systemctl and reload don't work on auditd
+            07_restart_audit:
+              command: "service auditd restart"
+              test: "systemctl is-active auditd"
+            08_mv_var_log:
+              command: "mv /var/log /tmp"
+              test: "test ! -e /tmp/log"
+            09_format_log_vol:
+              command: "mkfs -t xfs /dev/xvdl"
+              test: '[ "`lsblk -no FSTYPE /dev/xvdl`" != "xfs" ]'
+            10_mk_mount_pt:
+              command: "mkdir /var/log"
+              test: "test ! -e /var/log"
+            11_mount_log:
+              command: "mount /dev/xvdl /var/log"
+              test: "test -e /var/log"
+            12_persist_log:
+              command: !Join
+                - ''
+                - - "echo UUID=`/usr/sbin/blkid | grep /dev/xvdl "
+                  - "| grep -o UUID.*[[:blank:]] "
+                  - "| cut -f2 -d\\\"` /var/log xfs defaults,nofail 0 2"
+                  - " >>/etc/fstab"
+              test: !Join
+                - ''
+                - - "! grep `/usr/sbin/blkid | grep /dev/xvdl "
+                  - "| grep -o UUID.*[[:blank:]] "
+                  - "| cut -f2 -d\\\"` /etc/fstab"
+            13_restore_logs:
+              command: "rsync -az /tmp/log /var/"
+              test: "test -d /var/log"
+            14_conf_audit:
+              command: "sed -i 's;/tmp;/var/log;' auditd.conf"
+              cwd: /etc/audit
+              test: "grep /tmp auditd.conf"
+            15_restart_audit:
+              command: "service auditd restart"
+              test: "systemctl is-active auditd"
+            16_restore_journal_conf:
+              command: "mv journald.save journald.conf"
+              cwd: /etc/systemd
+              test: "test -f journald.save"
+            17_reload_journal:
+              command: "systemctl force-reload systemd-journald"
+              test: "systemctl is-active systemd-journald"
+            18_reload_amazon_ssm:
+              command: "systemctl force-reload amazon-ssm-agent"
+              test: "systemctl is-active amazon-ssm-agent"
+            19_reload_syslog:
+              command: "systemctl force-reload rsyslog"
+              test: "systemctl is-active rsyslog"
+
+        mount_spool:
+          commands:
+            01_stop_postfix:
+              command: "systemctl stop postfix"
+              test: "systemctl is-active postfix"
+            02_stop_atd:
+              command: "systemctl stop atd"
+              test: "systemctl is-active atd"
+            03_mv_var_spool:
+              command: "mv /var/spool /tmp"
+              test: "test ! -e /tmp/spool"
+            04_format_spool_vol:
+              command: "mkfs -t xfs /dev/xvds"
+              test: '[ "`lsblk -no FSTYPE /dev/xvds`" != "xfs" ]'
+            05_mk_mount_pt:
+              command: "mkdir /var/spool"
+              test: "test ! -e /var/spool"
+            06_mount_spool:
+              command: "mount /dev/xvds /var/spool"
+              test: "test -e /var/spool"
+            07_persist_spool:
+              command: !Join
+                - ''
+                - - "echo UUID=`/usr/sbin/blkid | grep /dev/xvds "
+                  - "| grep -o UUID.*[[:blank:]] "
+                  - "| cut -f2 -d\\\"` /var/spool xfs defaults,nofail 0 2"
+                  - " >>/etc/fstab"
+              test: !Join
+                - ''
+                - - "! grep `/usr/sbin/blkid | grep /dev/xvds "
+                  - "| grep -o UUID.*[[:blank:]] "
+                  - "| cut -f2 -d\\\"` /etc/fstab"
+            08_restore_spool:
+              command: "rsync -az /tmp/spool /var/"
+              test: "test -d /var/spool"
+            09_start_atd:
+              command: "systemctl start atd"
+              test: "systemctl is-enabled atd"
+
+        add_mysql:
+          files:
+            /tmp/mysql80.rpm:
+              source: !Join
+                - ''
+                - - https://dev.mysql.com/get/
+                  - mysql80-community-release-el7-2.noarch.rpm
+              mode: "000600"
+              owner: "root"
+              group: "root"
+          commands:
+            01_install_repo:
+              command: "yum -y localinstall mysql80.rpm"
+              cwd: /tmp
+              test: "test -e /tmp/mysql80.rpm"
+            02_install_mysql_client:
+              command: "yum -y install mysql-community-client"
+              test: "yum repolist enabled | grep mysql"
+
+        config_mysql:
+          #
+          # There doesn't appear to currently be a way to create group with
+          # the same name as a user and to assign it an ID. When you specify
+          # users here, the command automatically creates a group of the same
+          # name, and lets the system pick the GID. If you try and create a
+          # group, or to assign a group of the same name as part of the user
+          # block, cfn-init fails. So, for example, we can't specify
+          # VirtualUID = 5000, VirtualGID = 5000, and create a user and group
+          # with those IDs. Since we need the GID early (to include here
+          # in the MySQL configuration), we create the user "virtual", and
+          # assign it the UID we want. At the same time, the group "virtual"
+          # is created, but we don't know the ID, so we place the token
+          # VIRTUALGID in the file, and swap it out with sed after the user
+          # is created.
+          #
+          users:
+            virtual:
+              uid: !Ref VirtualUID
+          files:
+            /tmp/tables.mysql:
+              content: !Sub |
+                USE ${MailDBName};
+                CREATE TABLE IF NOT EXISTS `backups` (
+                `pkid` smallint(6) NOT NULL auto_increment,
+                `domain` varchar(128) NOT NULL default '',
+                `transport` varchar(128) NOT NULL default ':[]',
+                `enabled` tinyint(1) NOT NULL default '1',
+                PRIMARY KEY  (`pkid`),
+                UNIQUE KEY `domain` (`domain`)
+                ) ;
+                CREATE TABLE IF NOT EXISTS `relays` (
+                `pkid` smallint(6) NOT NULL auto_increment,
+                `recipient` varchar(120) NOT NULL default '',
+                `enabled` tinyint(1) NOT NULL default '1',
+                `status` varchar(10) NOT NULL default 'OK',
+                PRIMARY KEY  (`pkid`),
+                UNIQUE KEY `recipient` (`recipient`)
+                ) ;
+              mode: "000400"
+              owner: "root"
+              group: "root"
+          commands:
+            01_create_tables:
+              command: !Join
+                - ''
+                - - "mysql -u "
+                  - !Ref MailDBUser
+                  - " --password='"
+                  - !Ref MailDBPassword
+                  - "' -h "
+                  - Fn::ImportValue: !Sub
+                      '${DatabaseStackName}-MasterDBEndpoint'
+                  - " </tmp/tables.mysql"
+              test: !Join
+                - ''
+                - - "$(mysql -u "
+                  - !Ref MailDBUser
+                  - " --password='"
+                  - !Ref MailDBPassword
+                  - "' -h "
+                  - Fn::ImportValue: !Sub
+                      '${DatabaseStackName}-MasterDBEndpoint'
+                  - " >/dev/null 2>&1 </dev/null)"
+
+        get_acmesh:
+          sources:
+            /tmp/acmesh: https://github.com/Neilpang/acme.sh/tarball/master
+          commands:
+            01_install_acmesh:
+              command: !Join
+                - ' '
+                - - ./acme.sh --install --home /usr/local/sbin
+                  - --config-home /etc/acmesh
+                  - Fn::If:
+                      - SetAccountEmail
+                      - Fn::Join:
+                          - ' '
+                          - - --accountemail
+                            - !Ref AccountEmail
+                      - ''
+              cwd: /tmp/acmesh
+            02_issue_ssl_cert:
+              command: !Join
+                - ' '
+                - - acme.sh
+                  - Fn::If:
+                      - SetSSLDebug
+                      - --debug
+                      - ''
+                  - Fn::If:
+                      - GetSSLTest
+                      - --test
+                      - ''
+                  - --config-home /etc/acmesh
+                  - --issue -d
+                  - !Ref BackupServerName
+                  - --dns dns_aws
+                  - --dnssleep
+                  - !Ref DNSSleep
+            03_install_ssl_cert:
+              command: !Join
+                - ' '
+                - - acme.sh
+                  - Fn::If:
+                      - SetSSLDebug
+                      - --debug
+                      - ''
+                  - --config-home /etc/acmesh
+                  - --install-cert -d
+                  - !Ref BackupServerName
+                  - --cert-file
+                  - Fn::Join:
+                      - ''
+                      - - /etc/pki/tls/certs/
+                        - !Ref BackupServerName
+                        - .cert.pem
+                  - --fullchain-file
+                  - Fn::Join:
+                      - ''
+                      - - /etc/pki/tls/certs/
+                        - !Ref BackupServerName
+                        - .chain.pem
+                  - --key-file
+                  - Fn::Join:
+                      - ''
+                      - - /etc/pki/tls/private/
+                        - !Ref BackupServerName
+                        - .key
+
+        install_mailserver:
+          packages:
+            yum:
+              awslogs: []
+              postfix: []
+          files:
+            /etc/cfn/cfn-hup.conf:
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+              mode: "000400"
+              owner: "root"
+              group: "root"
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Join
+                - ''
+                - - |-
+                    [cfn-auto-reloader-hook]
+                    triggers=post.update
+                    path=Resources.MailServerInstance.Metadata.
+                  - |-
+                    AWS::CloudFormation::Init
+                    action=/opt/aws/bin/cfn-init -v --stack
+                  - ' '
+                  - !Ref AWS::StackName
+                  - ' --resource MailServerInstance --configsets '
+                  - !If [NoAdminUser, deploy_baseserver, deploy_with_alt_admin]
+                  - !If [EnableSpf, ",enable_spf", ""]
+                  - '  --region '
+                  - !Ref AWS::Region
+                  - |
+
+                    runas=root
+              mode: "000400"
+              owner: "root"
+              group: "root"
+          commands:
+            01_stay_secure:
+              command: "echo 0 0 * * * yum -y update --security >> /etc/crontab"
+              test: "! grep yum.*security /etc/crontab"
+          services:
+            sysvinit:
+              cfn-hup:
+                enabled: "true"
+                ensureRunning: "true"
+                files:
+                  - "/etc/cfn/cfn-hup.conf"
+                  - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
+
+        config_postfix:
+          files:
+            /etc/mailname:
+              content: !Ref BackupServerName
+              mode: "000644"
+              owner: "root"
+              group: "root"
+            /etc/postfix/mysql_backups.cf:
+              content:
+                Fn::Sub:
+                  - |
+                    user=${MailDBUser}
+                    password=${MailDBPassword}
+                    dbname=${MailDBName}
+                    table=backups
+                    select_field=domain
+                    where_field=domain
+                    hosts=${RDSHost}
+                    additional_conditions = and enabled = 1
+                  - RDSHost:
+                      Fn::ImportValue:
+                        !Sub '${DatabaseStackName}-MasterDBEndpoint'
+              mode: "000640"
+              owner: "root"
+              group: "postfix"
+            /etc/postfix/mysql_transport.cf:
+              content:
+                Fn::Sub:
+                  - |
+                    user=${MailDBUser}
+                    password=${MailDBPassword}
+                    dbname=${MailDBName}
+                    table=backups
+                    select_field=transport
+                    where_field=domain
+                    hosts=${RDSHost}
+                    additional_conditions = and enabled = 1
+                  - RDSHost:
+                      Fn::ImportValue:
+                        !Sub '${DatabaseStackName}-MasterDBEndpoint'
+              mode: "000640"
+              owner: "root"
+              group: "postfix"
+            /etc/postfix/mysql_relays.cf:
+              content:
+                Fn::Sub:
+                  - |
+                    user=${MailDBUser}
+                    password=${MailDBPassword}
+                    dbname=${MailDBName}
+                    table=relays
+                    select_field=recipient
+                    where_field=recipient
+                    hosts=${RDSHost}
+                    additional_conditions = and enabled = 1
+                  - RDSHost:
+                      Fn::ImportValue:
+                        !Sub '${DatabaseStackName}-MasterDBEndpoint'
+              mode: "000640"
+              owner: "root"
+              group: "postfix"
+
+            /tmp/postfix_tls.cf:
+              content: !Sub |
+                # TLS parameters
+                # smtp_use_tls = no
+                # smtpd_use_tls=yes
+                smtpd_tls_security_level = may
+                # smtpd_tls_auth_only = no
+                #
+                # Use log level 3 only in case of problems.
+                # Use of log level 4 is strongly discouraged.
+                smtpd_tls_loglevel = 1
+                smtpd_tls_received_header = yes
+                smtpd_tls_session_cache_timeout = 3600s
+                tls_random_source = dev:/dev/urandom
+                smtpd_tls_cert_file =
+                    /etc/pki/tls/certs/${BackupServerName}.cert.pem
+                smtpd_tls_key_file =
+                    /etc/pki/tls/private/${BackupServerName}.key
+                smtpd_tls_CAfile =
+                    /etc/pki/tls/certs/${BackupServerName}.chain.pem
+                # smtpd_tls_session_cache_database =
+                #     btree:/var/lib/postfix/smtpd_scache
+                # smtp_tls_session_cache_database =
+                #     btree:/var/lib/postfix/smtp_scache
+                # lmtp_tls_session_cache_database =
+                #     btree:/var/lib/postfix/lmtp_scache
+              mode: "000640"
+              owner: "postfix"
+              group: "postfix"
+
+            /tmp/postfix_extras.cf:
+              content: !Sub |
+                #
+                # Added by cfn-init
+                # See http://flurdy.com/docs/postfix/#config for details
+                delay_warning_time = ${DelayWarningTime}
+                maximal_queue_lifetime = ${MaxQueueLifetime}
+                minimal_backoff_time = ${MinBackoffTime}
+                maximal_backoff_time = ${MaxBackoffTime}
+                smtp_helo_timeout = ${HeloTimeout}
+                smtpd_recipient_limit = ${RecipientLimit}
+                smtpd_soft_error_limit = ${SoftErrLimit}
+                smtpd_hard_error_limit = ${HardErrLimit}
+                smtpd_helo_restrictions = permit_mynetworks, warn_if_reject
+                    reject_non_fqdn_hostname, reject_invalid_hostname,
+                    permit
+                smtpd_sender_restrictions = permit_mynetworks,
+                    warn_if_reject reject_non_fqdn_sender,
+                      reject_unknown_sender_domain, reject_unauth_pipelining,
+                    permit
+                smtpd_client_restrictions = reject_rbl_client
+                    sbl.spamhaus.org,
+                    reject_rbl_client blackholes.easynet.nl
+                smtpd_recipient_restrictions = reject_unauth_pipelining,
+                    permit_mynetworks,
+                    reject_non_fqdn_recipient,
+                    reject_unknown_recipient_domain,
+                    reject_unauth_destination, permit
+                smtpd_data_restrictions = reject_unauth_pipelining
+                smtpd_delay_reject = yes
+                smtpd_helo_required = yes
+                disable_vrfy_command = yes
+                virtual_mailbox_base = /var/spool/mail/virtual
+                relay_domains = mysql:/etc/postfix/mysql_backups.cf
+                transport_maps = mysql:/etc/postfix/mysql_transport.cf
+                relay_recipient_maps = mysql:/etc/postfix/mysql_relays.cf
+              mode: "000640"
+              owner: "root"
+              group: "root"
+
+          commands:
+            01_no_hostname:
+              command: "sed -i 's/^myhostname/#myhostname/' main.cf"
+              cwd: /etc/postfix
+              test: "grep ^myshostname main.cf"
+            02_no_origin:
+              command: "sed -i 's/^myorigin/#myorigin/' main.cf"
+              cwd: /etc/postfix
+              test: "grep ^myorigin main.cf"
+            03_my_origin:
+              command:
+                Fn::If:
+                  - DomainOrigin
+                  - !Join
+                    - ''
+                    - - "sed -i "
+                      - "'s/^#myorigin.*domain/myorigin = $mydomain/' main.cf"
+                  - !Join
+                    - ''
+                    - - "sed -i "
+                      - "'s/^#myorigin.*host/myorigin = $myhostname/' main.cf"
+              cwd: /etc/postfix
+            04_smtpd_banner:
+              command:
+                Fn::If:
+                  - DefaultBanner
+                  - !Join
+                    - ''
+                    - - "sed -i "
+                      - "'s/^#smtpd_banner\\(.*mail_name$\\)/"
+                      - "smtpd_banner\\1/' main.cf"
+                  - !Join
+                    - ''
+                    - - "tac main.cf | awk '!p && /^#smtpd_banner/"
+                      - "{print \"smtpd_banner = "
+                      - !Ref Banner
+                      - "\"; p=1} 1' | tac >> /tmp/banner.cf && "
+                      - "mv /tmp/banner.cf main.cf"
+              cwd: /etc/postfix
+            05_relay_host:
+              command: !Join
+                - ''
+                - - "tac main.cf | awk '!p && /^#relayhost/"
+                  - "{ print\"relayhost = "
+                  - !Ref RelayHost
+                  - "\"; p=1} 1' | tac >> /tmp/relay.cf && "
+                  - "mv /tmp/relay.cf main.cf"
+              cwd: /etc/postfix
+              test: "! grep ^relayhost main.cf"
+            06_interfaces:
+              command: !Join
+                - ''
+                - - "sed -i 's/^inet_interfaces.*/inet_interfaces = all/' "
+                  - "main.cf"
+              cwd: /etc/postfix
+            07_networks_style:
+              command: !Join
+                - ''
+                - - "sed -i 's/^#mynetworks_style = host/"
+                  - "mynetworks_style = host/' main.cf"
+              cwd: /etc/postfix
+              test: "! grep ^mynetworks_style main.cf"
+            08_inet_protocols:
+              command: !Join
+                - ''
+                - - "sed -i 's/^inet_protocols =.*/"
+                  - "inet_protocols = "
+                  - !Ref InetProtocols
+                  - "/' main.cf"
+              cwd: /etc/postfix
+            09_local_recipient_maps:
+              command: !Join
+                - ''
+                - - "sed -i 's/^#local_recipient_maps =$/"
+                  - "local_recipient_maps =/' main.cf"
+              cwd: /etc/postfix
+              test: "! grep ^local_recipient_maps main.cf"
+            10_no_my_destination:
+              command: "sed -i 's/^mydestination/#mydestination/' main.cf"
+              cwd: /etc/postfix
+              test: "grep ^mydestination main.cf"
+            11_my_destination:
+              command: !Join
+                - ''
+                - - "sed -i '0,/^#mydestination.*/s/^#mydestination.*/"
+                  - "mydestination =\\\n&/' main.cf"
+              cwd: /etc/postfix
+            12_unknown_local_reject_code:
+              command: !Join
+                - ''
+                - - "sed -i 's/^unknown_local_recipient_reject_code.*/"
+                  - "unknown_local_recipient_reject_code = "
+                  - !Ref UnknownLocalErrorCode
+                  - "'/ main.cf"
+              cwd: /etc/postfix
+            #
+            # Not sure why we do this. Maybe the OS is more likely to mangle
+            # alias_maps than postfix is?
+            #
+            13_no_alias_maps:
+              command: "sed -i 's/^alias_maps/#alias_maps/' main.cf"
+              cwd: /etc/postfix
+              test: "grep ^alias_maps main.cf"
+            14_my_alias_maps:
+              command: !Join
+                - ''
+                - - "tac main.cf | awk '!p && /^#alias_maps/"
+                  - "{ print\"alias_maps = hash:/etc/postfix/aliases\""
+                  - "; p=1} 1' | tac >> /tmp/aliasmaps.cf && "
+                  - "mv /tmp/aliasmaps.cf main.cf"
+              cwd: /etc/postfix
+            15_no_alias_db:
+              command: "sed -i 's/^alias_database/#alias_database/' main.cf"
+              cwd: /etc/postfix
+              test: "grep ^alias_database main.cf"
+            16_alias_db:
+              command: !Join
+                - ''
+                - - "tac main.cf | awk '!p && /^#alias_database/"
+                  - "{ print\"alias_database = hash:/etc/postfix/aliases\""
+                  - "; p=1} 1' | tac >> /tmp/aliasdb.cf && "
+                  - "mv /tmp/aliasdb.cf main.cf"
+              cwd: /etc/postfix
+            18_extra_config:
+              command: "cat /tmp/postfix_extras.cf >> main.cf"
+              cwd: /etc/postfix
+              test: "test -f /tmp/postfix_extras.cf"
+            18_extra_tls:
+              command: !If
+                - EnableTLS
+                - "cat /tmp/postfix_tls.cf >> main.cf"
+                - "echo skipping TLS"
+              cwd: /etc/postfix
+              test: "test -f /tmp/postfix_tls.cf"
+            19_mv_aliases:
+              command: "cp /etc/aliases ."
+              cwd: /etc/postfix
+              test: "test -f /etc/aliases"
+            20_add_root_email:
+              command: !Join
+                - ''
+                - - "echo \"root:	"
+                  - !Ref RootMailRecipient
+                  - "\" >> aliases"
+              cwd: /etc/postfix
+              test: "! grep ^root"
+            21_update_aliases:
+              command: "postalias aliases"
+              cwd: /etc/postfix
+              test: "test -f aliases"
+            22_make_mail_dirs:
+              command: "mkdir /var/spool/mail/virtual"
+              test: "test ! -e /var/spool/mail/virtual"
+            23_chown_mail_dirs:
+              command: "chown -R virtual:virtual /var/spool/mail/virtual"
+              test: "test -d /var/spool/mail/virtual"
+          services:
+            sysvinit:
+              postfix:
+                enabled: !If [DontStart, "false", "true"]
+                ensureRunning: !If [DontStart, "false", "true"]
+
+        restart_postfix:
+          commands:
+            01_restart_postfix:
+              command: systemctl restart postfix
+              test: systemctl status postfix
+
+        spf_verify:
+          packages:
+            yum:
+              python3-pip: []
+          commands:
+            01_install_pypolicyd:
+              command: "pip3 install pypolicyd-spf pyspf py3dns"
+              test: "which pip3"
+            02_comment_HELO_reject:
+              command: sed -i 's/^HELO_reject/# HELO_reject/' policyd-spf.conf
+              cwd: /etc/python-policyd-spf
+              test: "[[ -f policyd-spf.conf ]]"
+            03_comment_Mail_From_reject:
+              command: sed -i 's/^Mail_From/# Mail_From/' policyd-spf.conf
+              cwd: /etc/python-policyd-spf
+              test: "[[ -f policyd-spf.conf ]]"
+            04_HELO_reject_false:
+              command: !Join
+                - ' '
+                - - sed -i '/^# HELO_reject.*/a HELO_reject = False/'
+                  - policyd-spf.conf
+              cwd: /etc/python-policyd-spf
+              test: grep "^# HELO_reject"  policyd-spf.conf
+            05_Mail_From_false:
+              command: !Join
+                - ' '
+                - - sed -i '/^# Mail_From.*/a Mail_From_reject = False/'
+                  - policyd-spf.conf
+              cwd: /etc/python-policyd-spf
+              test: grep "^# Mail_From"  policyd-spf.conf
+            06_create_policyd_user:
+              command: useradd -rMs /sbin/nologin policyd-spf
+            07_configure_postfix_master:
+              command: !Join
+                - ''
+                - - "echo 'policyd-spf  unix  -       n       n       -"
+                  - "       0       spawn' >> master.cf && "
+                  - "echo '   user=policyd-spf argv=/usr/bin/policyd-spf'"
+                  - " >> master.cf"
+              cwd: /etc/postfix
+            08_configure_spf_timeout:
+              command: !Join
+                - ''
+                - - 'echo "policyd-spf_time_limit = '
+                  - !Ref SpfTimeLimit
+                  - '" >> main.cf'
+              cwd: /etc/postfix
+            09_add_policyd-spf_to_postfix:
+              command: !Join
+                - ''
+                - - sed -i "s;^[[:blank:]]reject_unauth_destination,.*;
+                  - \ reject_unauth_destination,\n\ \ \ \ check_policy_service
+                  - ' unix:private/policyd-spf,;" main.cf'
+              cwd: /etc/postfix
+
+    Properties:
+      IamInstanceProfile: !Ref MailInstanceProfile
+      ImageId: !Ref MailAMIID
+      InstanceType: !Ref MailInstanceType
+      KeyName: !Ref EC2KeyName
+      SecurityGroupIds:
+        - !Ref MailSecurityGroup
+      SubnetId: !Select [0, !Ref BackupSubnet]
+      Tags:
+        -
+          Key: Name
+          Value: !Join ['', ['Backup Mail Server / ', !Ref 'AWS::StackName']]
+      UserData:
+        "Fn::Base64": !Sub
+          - |
+            #!/bin/bash -xe
+            yum update -y
+            yum install -y aws-cfn-bootstrap
+            /opt/aws/bin/cfn-init \
+              --configsets \
+              ${WantSwap}${DeployType},${Components}${SPF} \
+              --verbose --stack ${AWS::StackName} \
+              --resource BackupMailServerInstance --region ${AWS::Region}
+            /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} \
+              --resource BackupMailServerInstance --region ${AWS::Region}
+          - {DeployType: !If [NoAdminUser, deploy_baseserver,
+                              deploy_with_alt_admin],
+             WantSwap: !If [SwapOn, "have_swap,", ""],
+             Components: !If [EnableTLSonBackup, "config_01", "config_02"],
+             SPF: !If [EnableSpf, ",enable_spf", ""]}
+
+    # CreationPolicy:
+    #   ResourceSignal:
+    #     Count: 1
+    #     Timeout: PT5M
+
   MasterSpoolMountPoint:
     Type: AWS::EC2::VolumeAttachment
     Properties:
@@ -2642,6 +3553,31 @@ Resources:
       InstanceId: !Ref MailServerInstance
       VolumeId:
         Fn::ImportValue: !Sub '${StorageStackName}:MasterLogEBS'
+
+  BackupSpoolMountPoint:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: /dev/xvds
+      InstanceId: !Ref BackupMailServerInstance
+      VolumeId:
+        Fn::ImportValue: !Sub '${StorageStackName}:BackupSpoolEBS'
+
+  BackupSwapMountPoint:
+    Type: AWS::EC2::VolumeAttachment
+    Condition: SwapOn
+    Properties:
+      Device: /dev/xvdm
+      InstanceId: !Ref BackupMailServerInstance
+      VolumeId:
+        Fn::ImportValue: !Sub '${StorageStackName}:BackupSwapEBS'
+
+  BackupLogMountPoint:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: /dev/xvdl
+      InstanceId: !Ref BackupMailServerInstance
+      VolumeId:
+        Fn::ImportValue: !Sub '${StorageStackName}:BackupLogEBS'
 
 Outputs:
   PrimaryMailServerPrivateDNS:
