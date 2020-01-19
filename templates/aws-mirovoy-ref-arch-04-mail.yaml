@@ -1141,7 +1141,15 @@ Resources:
               command: "mv /var/log /tmp"
               test: "test ! -e /tmp/log"
             09_format_log_vol:
-              command: "mkfs -t xfs /dev/xvdl"
+              command: !Join
+                - " "
+                - - (
+                  - Fn::ImportValue: !Join
+                      - ':'
+                      - - !Ref StorageStackName
+                        - FormatMasterLog
+                  - "&& mkfs -t xfs /dev/xvdl) ||"
+                  - 'echo "Skipping format of master log"'
               test: '[ "`lsblk -no FSTYPE /dev/xvdl`" != "xfs" ]'
             10_mk_mount_pt:
               command: "mkdir /var/log"
@@ -1162,7 +1170,15 @@ Resources:
                   - "| grep -o UUID.*[[:blank:]] "
                   - "| cut -f2 -d\\\"` /etc/fstab"
             13_restore_logs:
-              command: "rsync -az /tmp/log /var/"
+              command: !Join
+                - " "
+                - - (
+                  - Fn::ImportValue: !Join
+                      - ':'
+                      - - !Ref StorageStackName
+                        - FormatMasterLog
+                  - "&& rsync -az /tmp/log /var/ ) ||"
+                  - 'echo "Not syncing logs. Some log info will be in /tmp/log"'
               test: "test -d /var/log"
             14_conf_audit:
               command: "sed -i 's;/tmp;/var/log;' auditd.conf"
@@ -1197,8 +1213,19 @@ Resources:
               command: "mv /var/spool /tmp"
               test: "test ! -e /tmp/spool"
             04_format_spool_vol:
-              command: "mkfs -t xfs /dev/xvds"
-              test: '[ "`lsblk -no FSTYPE /dev/xvds`" != "xfs" ]'
+              command: !Join
+                - " "
+                - - (
+                  - Fn::ImportValue: !Join
+                      - ':'
+                      - - !Ref StorageStackName
+                        - FormatMasterSpool
+                  - "&& mkfs -t xfs /dev/xvds) ||"
+                  - 'echo "Skipping format of master spool"'
+              test: !Join
+                - ' '
+                - - '[ "`lsblk -no FSTYPE /dev/xvds`" != "xfs" ]'
+                  - '&& [ "`lsblk -no FSTYPE /dev/xvds`" != "ext4" ]'
             05_mk_mount_pt:
               command: "mkdir /var/spool"
               test: "test ! -e /var/spool"
@@ -1218,7 +1245,15 @@ Resources:
                   - "| grep -o UUID.*[[:blank:]] "
                   - "| cut -f2 -d\\\"` /etc/fstab"
             08_restore_spool:
-              command: "rsync -az /tmp/spool /var/"
+              command: !Join
+                - " "
+                - - (
+                  - Fn::ImportValue: !Join
+                      - ':'
+                      - - !Ref StorageStackName
+                        - FormatMasterSpool
+                  - "&& rsync -az /tmp/spool /var/) ||"
+                  - 'echo "Not restoring /tmp/spool"'
               test: "test -d /var/spool"
             09_start_atd:
               command: "systemctl start atd"
@@ -1880,12 +1915,69 @@ Resources:
               command: "postalias aliases"
               cwd: /etc/postfix
               test: "test -f aliases"
+            #
+            # If we mounted from a snapshot, then /var/spool/mail/virtual
+            # should already exist.
+            #
             22_make_mail_dirs:
-              command: "mkdir /var/spool/mail/virtual"
+              command: !Join
+                - " "
+                - - (
+                  - Fn::ImportValue: !Join
+                      - ':'
+                      - - !Ref StorageStackName
+                        - FormatMasterSpool
+                  - "&& mkdir /var/spool/mail/virtual ) ||"
+                  - 'echo "Skipping creating /var/spoolmail/virtual"'
               test: "test ! -e /var/spool/mail/virtual"
-            23_chown_mail_dirs:
+            23_chown_virtual_dirs:
               command: "chown -R virtual:virtual /var/spool/mail/virtual"
               test: "test -d /var/spool/mail/virtual"
+            #
+            # 24-29 are because if we mounted from a snapshot, the uid:gid
+            # numbers may not match the current system
+            #
+            24_fix_var_mail_permissions:
+              command: chown root:mail mail
+              cwd: /var/spool
+              test: '[[ `ls -ld mail/| cut -f3-4 -d" "` != "root mail" ]]'
+            25_postfix_dir_perms:
+              command: rsync -az /tmp/spool/postfix /var/spool/
+              cwd: /var/spool
+              test: '[[ `ls -ld postfix/| cut -f3-4 -d" "` != "root mail" ]]'
+            26_check_postfix_dir:
+              command: chown root:root postfix
+              cwd: /var/spool
+              test: !Join
+                - " "
+                - - '[[ -d postfix ]] &&'
+                  - '[[ `ls -ld postfix/| cut -f3-4 -d" "` != "root root" ]]'
+            27_check_postfix_pid:
+              command: chown root:root pid
+              cwd: /var/spool/postfix
+              test: !Join
+                - " "
+                - - '[[ -d pid ]] &&'
+                  - '[[ `ls -ld pid/| cut -f3-4 -d" "` != "root root" ]]'
+            28_check_postfix_private:
+              command: chown postfix:root private
+              cwd: /var/spool/postfix
+              test: !Join
+                - " "
+                - - '[[ -d private ]] &&'
+                  - '[[ `ls -ld private/| cut -f3-4 -d" "` != "postfix root" ]]'
+            29_check_postfix_public:
+              command: chown postfix:postdrop public
+              cwd: /var/spool/postfix
+              test: !Join
+                - " "
+                - - '[[ -d public ]] &&'
+                  - '[[ `ls -ld public/| cut -f3-4 -d" "` != "postfix'
+                  - 'postdrop" ]]'
+            30_restore_postfix_dir:
+              command: rsync -az /tmp/spool/postfix /var/spool/
+              cwd: /var/spool
+              test: '[[ ! -d postfix ]]'
           services:
             sysvinit:
               postfix:
@@ -2856,7 +2948,15 @@ Resources:
               command: "mv /var/log /tmp"
               test: "test ! -e /tmp/log"
             09_format_log_vol:
-              command: "mkfs -t xfs /dev/xvdl"
+              command: !Join
+                - " "
+                - - (
+                  - Fn::ImportValue: !Join
+                      - ':'
+                      - - !Ref StorageStackName
+                        - FormatBackupLog
+                  - "&& mkfs -t xfs /dev/xvdl) ||"
+                  - 'echo "Skipping format of backup mail log"'
               test: '[ "`lsblk -no FSTYPE /dev/xvdl`" != "xfs" ]'
             10_mk_mount_pt:
               command: "mkdir /var/log"
@@ -2877,7 +2977,15 @@ Resources:
                   - "| grep -o UUID.*[[:blank:]] "
                   - "| cut -f2 -d\\\"` /etc/fstab"
             13_restore_logs:
-              command: "rsync -az /tmp/log /var/"
+              command: !Join
+                - " "
+                - - (
+                  - Fn::ImportValue: !Join
+                      - ':'
+                      - - !Ref StorageStackName
+                        - FormatBackupLog
+                  - "&& rsync -az /tmp/log /var/) ||"
+                  - 'echo "Not syncing logs. Some log info will be in /tmp/log"'
               test: "test -d /var/log"
             14_conf_audit:
               command: "sed -i 's;/tmp;/var/log;' auditd.conf"
@@ -2912,8 +3020,19 @@ Resources:
               command: "mv /var/spool /tmp"
               test: "test ! -e /tmp/spool"
             04_format_spool_vol:
-              command: "mkfs -t xfs /dev/xvds"
-              test: '[ "`lsblk -no FSTYPE /dev/xvds`" != "xfs" ]'
+              command: !Join
+                - " "
+                - - (
+                  - Fn::ImportValue: !Join
+                      - ':'
+                      - - !Ref StorageStackName
+                        - FormatBackupSpool
+                  - "&& mkfs -t xfs /dev/xvds) ||"
+                  - 'echo "Skipping format of backup spool"'
+              test: !Join
+                - ' '
+                - - '[ "`lsblk -no FSTYPE /dev/xvds`" != "xfs" ]'
+                  - '&& [ "`lsblk -no FSTYPE /dev/xvds`" != "ext4" ]'
             05_mk_mount_pt:
               command: "mkdir /var/spool"
               test: "test ! -e /var/spool"
@@ -2933,7 +3052,15 @@ Resources:
                   - "| grep -o UUID.*[[:blank:]] "
                   - "| cut -f2 -d\\\"` /etc/fstab"
             08_restore_spool:
-              command: "rsync -az /tmp/spool /var/"
+              command: !Join
+                - " "
+                - - (
+                  - Fn::ImportValue: !Join
+                      - ':'
+                      - - !Ref StorageStackName
+                        - FormatBackupSpool
+                  - "&& rsync -az /tmp/spool /var/) ||"
+                  - 'echo "Not restoring /tmp/spool"'
               test: "test -d /var/spool"
             09_start_atd:
               command: "systemctl start atd"
@@ -3420,12 +3547,69 @@ Resources:
               command: "postalias aliases"
               cwd: /etc/postfix
               test: "test -f aliases"
+            #
+            # If we mounted from a snapshot, then /var/spool/mail/virtual
+            # should already exist.
+            #
             22_make_mail_dirs:
-              command: "mkdir /var/spool/mail/virtual"
+              command: !Join
+                - " "
+                - - (
+                  - Fn::ImportValue: !Join
+                      - ':'
+                      - - !Ref StorageStackName
+                        - FormatBackupSpool
+                  - "&& mkdir /var/spool/mail/virtual ) ||"
+                  - 'echo "Skipping creating /var/spoolmail/virtual"'
               test: "test ! -e /var/spool/mail/virtual"
             23_chown_mail_dirs:
               command: "chown -R virtual:virtual /var/spool/mail/virtual"
               test: "test -d /var/spool/mail/virtual"
+            #
+            # 24-29 are because if we mounted from a snapshot, the uid:gid
+            # numbers may not match the current system
+            #
+            24_fix_var_mail_permissions:
+              command: chown root:mail mail
+              cwd: /var/spool
+              test: '[[ `ls -ld mail/| cut -f3-4 -d" "` != "root mail" ]]'
+            25_postfix_dir_perms:
+              command: rsync -az /tmp/spool/postfix /var/spool/
+              cwd: /var/spool
+              test: '[[ `ls -ld postfix/| cut -f3-4 -d" "` != "root mail" ]]'
+            26_check_postfix_dir:
+              command: chown root:root postfix
+              cwd: /var/spool
+              test: !Join
+                - " "
+                - - '[[ -d postfix ]] &&'
+                  - '[[ `ls -ld postfix/| cut -f3-4 -d" "` != "root root" ]]'
+            27_check_postfix_pid:
+              command: chown root:root pid
+              cwd: /var/spool/postfix
+              test: !Join
+                - " "
+                - - '[[ -d pid ]] &&'
+                  - '[[ `ls -ld pid/| cut -f3-4 -d" "` != "root root" ]]'
+            28_check_postfix_private:
+              command: chown postfix:root private
+              cwd: /var/spool/postfix
+              test: !Join
+                - " "
+                - - '[[ -d private ]] &&'
+                  - '[[ `ls -ld private/| cut -f3-4 -d" "` != "postfix root" ]]'
+            29_check_postfix_public:
+              command: chown postfix:postdrop public
+              cwd: /var/spool/postfix
+              test: !Join
+                - " "
+                - - '[[ -d public ]] &&'
+                  - '[[ `ls -ld public/| cut -f3-4 -d" "` != "postfix'
+                  - 'postdrop" ]]'
+            30_restore_postfix_dir:
+              command: rsync -az /tmp/spool/postfix /var/spool/
+              cwd: /var/spool
+              test: '[[ ! -d postfix ]]'
           services:
             sysvinit:
               postfix:

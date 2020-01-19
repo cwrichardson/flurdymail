@@ -455,6 +455,26 @@ Resources:
     DeletionPolicy: Delete
 
 Outputs:
+  FormatMasterSpool:
+    Description: Whether to reformat /var/spool when attaching to mail
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", FormatMasterSpool]]
+    Value: !If [NoMasterSpoolSnapshot, true, false]
+  FormatBackupSpool:
+    Description: Whether to reformat /var/spool when attaching to mail backup
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", FormatBackupSpool]]
+    Value: !If [NoBackupSpoolSnapshot, true, false]
+  FormatMasterLog:
+    Description: Whether to reformat /var/log when attaching to mail
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", FormatMasterLog]]
+    Value: !If [NoMasterLogSnapshot, true, false]
+  FormatBackupLog:
+    Description: Whether to reformat /var/log when attaching to mail backup
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", FormatBackupLog]]
+    Value: !If [NoBackupLogSnapshot, true, false]
   SwapVolumesBoolean:
     Description: Whether swap EBS volumes were created
     Export:
