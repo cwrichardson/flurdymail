@@ -474,13 +474,10 @@ Parameters:
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
     Description: AMI ID to use for the mail servers
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
-  MailDBUser:
+  MailDBName:
     AllowedPattern: ^([a-zA-Z0-9]*)$
-    Description: The MySQL username to have access to the mail database.
-    ConstraintDescription: 'Must contain only alphanumeric characters and be at
-      least 8 characters.'
-    MaxLength: 16
-    MinLength: 8
+    Default: maildb
+    Description: The MySQL mail database name.
     Type: String
   MailDBPassword:
     AllowedPattern: ^([a-z0-9A-Z`~!#$%^&*()_+,\\-])*$
@@ -492,9 +489,14 @@ Parameters:
     MinLength: 8
     NoEcho: true
     Type: String
-  MailDBName:
+  MailDBUser:
     AllowedPattern: ^([a-zA-Z0-9]*)$
-    Description: The MySQL mail database name.
+    Default: mail
+    Description: The MySQL username to have access to the mail database.
+    ConstraintDescription: 'Must contain only alphanumeric characters and be at
+      least 8 characters.'
+    MaxLength: 16
+    MinLength: 8
     Type: String
   MaxUserConnections:
     Default: 25
@@ -2616,10 +2618,12 @@ Resources:
               command: !Join
                 - ' '
                 - - echo "milter_default_action = accept" >> main.cf &&
-                  - echo "smtpd_milters = unix:/var/run/opendkim/opendkim.sock"
+                  - 'echo "smtpd_milters ='
+                  - 'unix:/var/spool/postfix/var/run/opendkim/opendkim.sock"'
                   - '>> main.cf &&'
                   - echo "non_smtpd_milters =
-                  - unix:/var/run/opendkim/opendkim.sock" >> main.cf
+                  - unix:/var/spool/postfix/var/run/opendkim/opendkim.sock"
+                  - '>> main.cf'
               cwd: /etc/postfix
             13_disable_amavisd_milter:
               command: !Join
