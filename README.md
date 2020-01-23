@@ -170,16 +170,36 @@ data, and to turn services on/off incrementally to aid in testing.
 
 ### Significant Variances
 
+### Minor Variances
+
 #### Encrypted Passwords
 
-Jon Jerome's Dovecot guide relies on the passwords being stored in
-the databases in CRYPT. Instead we use SHA256. This would be a minor
-change, except for the fact that it means you **can not migrate
-databases directly from earlier Flurdy instances**. The method of
-encrypting the password in the database has changed in a
-non-backwards-compatible way. See the To Do list for more information.
+Flurdy uses the following MySQL syntax to enter passwords into the database:
 
-### Minor Variances
+encrypt('apassword', CONCAT('$5$', MD5(RAND())))
+
+Unfortunately, the `encrypt` function was depricated in MySQL 5.7.6, and
+removed in MySQL 8.0.3. We're
+using a more recent version (8.0.15 as of this writing); therefore, we can
+no longer use this syntax for injection of new passwords.
+
+In fact, there does not appear to be any way to perform SHA256-CRYPT
+natively in MySQL anymore, so to manually enter passwords in the database,
+you'll need to generate the hash on the command line
+
+doveadm pw -s SHA256-CRYPT -p apassword
+
+The result will be something like
+
+{SHA256-CRYPT}$5$9m8G1.WomxSJUu8K$uu3Ky9Lsoa9XHtmyaNtV./MjAc3GP45Ucxrg5i1PEI8
+
+You can then take everything after `{SHA256-CRYPT}` (<the hash>) and add it
+to the database using the Flurdy syntax:
+
+INSERT INTO users (id,name,maildir,crypt) VALUES
+	('xandros@blobber.org','xandros','xandros/','<the hash>');
+
+For more details, see [Password Storage], below.
 
 #### Firewall
 
@@ -534,6 +554,33 @@ If you don't already have an SSL/TLS certificate for your domain name, it is rec
 
 Use ACM to request a certificate or import a certificate into ACM. To use an ACM certificate with CloudFront (optional input parameter), you must request or import the certificate in the US East (N. Virginia) region. To use an ACM certificate with Amazon ELB - Application Load Balancer (optional input parameter), you must request or import the certificate in the region you create the CloudFormation stack. After you validate ownership of the domain names in your certificate, ACM provisions the certificate. Use the ACM certificate Amazon Resource Name (ARN) as the optional Cloudfront and/or Public ALB ACM certificate input parameters of the master template.
 
+## Notes
+
+### Password Storage
+
+The Flurdy instructions use the MySQL `encrypt` function to store a salted
+hash of each user's password. The `encrypt` function actually relies on the
+underlying Unix `crypt()` system call, and the behavior may vary depending
+on your system's verions of `crypt()`. For example, on Windows, where no
+`crypt()` is available, the `encrypt` function always returns `null`. On
+older *nix systems, it may only return the DES hash of the first 8 characters
+of the password. However, on most systems running Flurdy mail servers, there
+almost certainly exists a glibc2, which supports extensions to the original
+`crypt()` functionality, and this is what is used. The way these versions of
+`glibc` work is to store password hashes in the format
+
+`$id$salt$encrypted`
+
+The `id` is used to specify which encryption method is used. In the case of
+Flurdy, this is `5`, which tells glibc to use SHA-256. The salt is the
+per-user plain-text salt added into the hash to prevent rainbow attacks.
+The "enrypted" part, then, is the SHA-256 hash of the plain-text password
+combined with a unique per-user salt. For better or worse, the crypt
+library's SHA256 implementation does not trivially append the salt to the
+plaintext password, instead it needs to know which parts are the salt and
+which parts are the password (see [crypt description] by one of the glibc
+maintainers).
+
 
 
 [Amavis]: https://www.ijs.si/software/amavisd/
@@ -551,6 +598,7 @@ Use ACM to request a certificate or import a certificate into ACM. To use an ACM
 [AWS VPC subnetting]:https://docs.aws.amazon.com/vpc/latest/userguide/working-with-vpcs.html
 [Bastion Hosts]:https://docs.aws.amazon.com/quickstart/latest/linux-bastion/architecture.html
 [ClamAV]: https://www.clamav.net
+[crypt description]: https://akkadia.org/drepper/SHA-crypt.txt
 [Elastic Block Store]: https://aws.amazon.com/ebs/
 [Elastic Load Balancing]: https://aws.amazon.com/elasticloadbalancing/
 [Dovecot]: https://www.dovecot.org
