@@ -690,6 +690,16 @@ Backup your existing database
 Put that backup in an S3 bucket, and use it as input to this configuration
 template.
 
+## Launch this template
+
+Amazon best practice is to launch this as one entire nested stack. There
+may be reasons that you want to do that; however, in practice, I don't. I
+launch infrastructure as a nested stack, and then separately
+flurdy-mail-master as a nested stack on top of it. The reason for this is
+that I use the infrastructure layer as ... infrastructure. There are lots of
+other things I run on the same infrastructure (e.g., web servers, which are
+a separate nested stack). Use your own judgement.
+
 ## Update DNS entries
 
 * Add the SPF, DMARC, and DKIM DNS entries.
