@@ -58,6 +58,7 @@ Metadata:
           - MailDBName
           - MailDBUser
           - MailDBPassword
+          - MailDBBackup
       - Label:
           default: AWS S3 Configuration
         Parameters:
@@ -177,14 +178,16 @@ Metadata:
         default: Mail Instance Type
       MailAMIID:
         default: AMI ID for Mail Servers
-      MailSecurityGroup:
-        default: Mail Security Group
+      MailDBBackup:
+        default: Mail Database Backup
       MailDBName:
         default: Mail Database Name
       MailDBUser:
         default: Mail Database Username
       MailDBPassword:
         default: Mail Database Password
+      MailSecurityGroup:
+        default: Mail Security Group
       MaxBackoffTime:
         default: Seconds between retries
       MaxQueueLifetime:
@@ -196,7 +199,7 @@ Metadata:
       MirovoyCFAssetsBucket:
         default: Mirovvoy CloudFront Assets S3 bucket name
       MYS3KeyPrefix:
-        default: Mirovoy CloudFront Assets Bastion S3 bucket key prefix
+        default: Mirovoy CloudFront Assets Mail S3 bucket key prefix
       OpenDkimDomains:
         default: Open DKIM Domains
       Origin:
@@ -474,6 +477,12 @@ Parameters:
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
     Description: AMI ID to use for the mail servers
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+  MailDBBackup:
+    Default: ""
+    Description: A path/to/a/file under your S3 prefix, defined below. It
+      should not start with a slash, and should include the entire filename.
+      The file should be the output of mysqldump, and will be fed into mysql.
+    Type: String
   MailDBName:
     AllowedPattern: ^([a-zA-Z0-9]*)$
     Default: maildb
@@ -491,7 +500,7 @@ Parameters:
     Type: String
   MailDBUser:
     AllowedPattern: ^([a-zA-Z0-9]*)$
-    Default: mail
+    Default: mailadmin
     Description: The MySQL username to have access to the mail database.
     ConstraintDescription: 'Must contain only alphanumeric characters and be at
       least 8 characters.'
@@ -768,6 +777,8 @@ Conditions:
     !Equals [!Ref CertSource, 'generate real']
   NoAdminUser:
     !Equals [!Ref AdminUser, '']
+  RestoreFromBackup:
+    !Not [!Equals [!Ref MailDBBackup, '']]
   SetAccountEmail:
     !Not [!Equals [!Ref AccountEmail, '']]
   SetSSLDebug:
@@ -1300,6 +1311,19 @@ Resources:
             virtual:
               uid: !Ref VirtualUID
           files:
+            /tmp/backup.mysql:
+              source: !If
+                - RestoreFromBackup
+                - !Join
+                  - ''
+                  - - https://
+                    - !Sub ${MirovoyCFAssetsBucket}.s3-${AWS::Region}
+                    - !Sub .amazonaws.com/${MYS3KeyPrefix}${MailDBBackup}
+                - AWS::NoValue
+              mode: "000600"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
             /tmp/setup.mysql:
               content: !Sub |
                 CREATE DATABASE IF NOT EXISTS ${MailDBName};
@@ -1365,6 +1389,45 @@ Resources:
               owner: "root"
               group: "root"
           commands:
+            00_restore_mail_db:
+              command: !Join
+                # The aws CLI query to get the secrets from the Secrets
+                # Manager are a little gross here. OK, a lot gross — because
+                # the actual SecretString returns a String, not an object
+                # that is further queryiable with JMESPath. For example
+                # it might output
+                #
+                # {"user":"secretuser", "password":"secretpass"}
+                #
+                # the above could be further queried by jq ... but jq isn't
+                # installed be default, whereas grep is, so we do this the
+                # old fashioned way. grep.
+                - ''
+                - - "mysql -u "
+                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
+                  - "get-secret-value --secret-id "
+                  - !Sub "${DatabaseStackName}-dbcreds "
+                  - "--query SecretString --output text | grep -Po "
+                  - "'user\":\"\\K.*?(?=\")'` "
+                  - "--password="
+                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
+                  - "get-secret-value --secret-id "
+                  - !Sub "${DatabaseStackName}-dbcreds "
+                  - "--query SecretString --output text | grep -Po "
+                  - "'password\":\"\\K.*?(?=\")'` -h "
+                  - Fn::ImportValue: !Sub ${DatabaseStackName}-MasterDBEndpoint
+                  - !Sub " ${MailDBName} "
+                  - " </tmp/backup.mysql"
+              test: !Join
+                - ''
+                - - "[[ ! $(mysql -u "
+                  - !Ref MailDBUser
+                  - " --password='"
+                  - !Ref MailDBPassword
+                  - "' -h "
+                  - Fn::ImportValue: !Sub
+                      '${DatabaseStackName}-MasterDBEndpoint'
+                  - " >/dev/null 2>&1 </dev/null) && -f /tmp/backup.mysql ]]"
             01_create_mail_db:
               command: !Join
                 # The aws CLI query to get the secrets from the Secrets
