@@ -563,15 +563,18 @@ Use ACM to request a certificate or import a certificate into ACM. To use an ACM
 
 ### Password Storage
 
-The Dovecot recommendation for hashed passwords is to "choose the strongest
-crypt scheme that’s supported by your system." In this case, that's
-SHA512-CRYPT. The package manager is currently installing Dovecot 2.2.36.
-As of Dovecot 2.3.0, Dovecot natively supports BLF-CRYPT (Blowfish crypt),
-which is considered stronger.
+The Dovecot recommendation for hashed passwords is to "choose the
+strongest crypt scheme that’s supported by your system" (see [dovecot
+password schemes]). In this case, that's SHA512-CRYPT. The package
+manager is currently installing Dovecot 2.2.36.  As of Dovecot
+2.3.0, Dovecot natively supports BLF-CRYPT (Blowfish crypt), which
+is considered stronger, and we'll likely move to it once the package
+distribution moves to that version.
 
 Dovecot allows you to store passwords with a hint to tell it which
-encryption scheme to use if the default scheme doesn't work, by prepending
-the encryption type in braces. So, for example, 
+encryption scheme to use if the default scheme doesn't work, by
+prepending the encryption type in braces (see [dovecot sql
+authentication]. So, for example,
 
 `$5$PgdnNT4KA8Y2djhO$DFV4eHO7U/6SWucFE0PjgsA7ce9PeS4.uCCUVeta717`
 
@@ -641,7 +644,64 @@ on ServerFault and StackOverflow using SHA512 without the salt. This seems
 like a bad idea, so I gave up on doing this with MySQL functions and
 use the doveadm-pw utility when I need to manually generate paswwords.
 
+## Testing
 
+In addition to the excellent testing guidelines provided by Flurdy, I found
+the following resources extremely useful:
+
+* [Testing IMAP with openssl]
+* [Certificate testing with openssl]
+* [Test spamassassin]
+
+# **Migrating an Existing Flurdy/Jeremy Server**
+
+* Make sure you've run through a new install of the above a few times, and
+everything works as expected.
+* Stop postfix and dovecot on your current mail server
+* Backup /var/spool on your existing mail server
+* Backup your existing mail database
+* Launch this template
+* Update DNS entries
+* Shut down your old server
+
+## Backup /var/spool
+
+If you're already running on AWS and /var/spool is a separate volume, the
+easiest thing to do is just create a snapshot of said volume and use it as
+an input to this configuration.
+
+If you're running on AWS, but /var/spool isn't it's own volume, the easiest
+thing to do is create a new EBS, attach it to your existing instance,
+copy /var/spool to the new volume, and then create a snapshot of that (and
+delete the EBS so you're not paying for extra storage you don't need).
+
+If you're not on AWS, you'll have to figure out some way to get the data
+from your existing server to the new server. Probably spin up one of these
+first, launch a bastion instance from your new autoscaling group, and then
+rsync over an ssh tunnel to the new server.
+
+## Backup your database
+
+Backup your existing database
+
+`mysqldump --add-drop-table -h mysql_hostserver -u mysql_username`
+    `-p mysql_databasename`
+
+Put that backup in an S3 bucket, and use it as input to this configuration
+template.
+
+## Update DNS entries
+
+* Add the SPF, DMARC, and DKIM DNS entries.
+* Add a DNS entry for your new backup mail server at a lower priority than
+your main server, but a higher priority than your existing backup server (if
+you have one)
+* Confirm your new backup server is queuing mail
+* Add DNS entry for <phpmyadmin>.<example>.com (it should point to your new 
+load balancer).
+* Replace your old primary MX record to point to your new primary server
+* Add DNS entry for <webmail>.<example>.com (it should point to your new
+load balancer).
 
 [Amavis]: https://www.ijs.si/software/amavisd/
 [Amazon Certificate Manager]: http://docs.aws.amazon.com/acm/latest/userguide/acm-overview.html
@@ -658,10 +718,13 @@ use the doveadm-pw utility when I need to manually generate paswwords.
 [AWS VPC subnetting]:https://docs.aws.amazon.com/vpc/latest/userguide/working-with-vpcs.html
 [Bastion Hosts]:https://docs.aws.amazon.com/quickstart/latest/linux-bastion/architecture.html
 [ClamAV]: https://www.clamav.net
+[Certificate testing with openssl]:https://support.plesk.com/hc/en-us/articles/213961665-How-to-verify-that-SSL-for-IMAP-POP3-SMTP-works-and-a-proper-SSL-certificate-is-in-use
 [crypt description]: https://akkadia.org/drepper/SHA-crypt.txt
 [Elastic Block Store]: https://aws.amazon.com/ebs/
 [Elastic Load Balancing]: https://aws.amazon.com/elasticloadbalancing/
 [Dovecot]: https://www.dovecot.org
+[dovecot password schemes]:https://doc.dovecot.org/configuration_manual/authentication/password_schemes/
+[dovecto sql authentication]:https://doc.dovecot.org/configuration_manual/authentication/sql/#authentication-sql
 [flurdy]: http://flurdy.com/docs/postfix/
 [acme.sh]:https://github.com/Neilpang/acme.sh
 [Jon Jerome]: https://xec.net/dovecot-migration/
@@ -682,4 +745,6 @@ use the doveadm-pw utility when I need to manually generate paswwords.
 [Route53]:https://aws.amazon.com/route53/
 [Simple Server]:http://flurdy.com/docs/ec2/ubuntu/index.html
 [t2vt3]:https://www.cloudsqueeze.ai/amazons-t3-who-should-use-it-when-how-and-the-why/index.html
+[Test spamassassin]:https://spamassassin.apache.org/gtube/gtube.txt
+[Testing IMAP with openssl]:https://tewarid.github.io/2011/05/10/access-imap-server-from-the-command-line-using-openssl.html
 [WordPress]:https://wordpress.org
