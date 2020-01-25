@@ -30,6 +30,9 @@ Metadata:
           - RoundcubeDBUser
           - RoundcubeDBPass
           - MailServerPrivateDNS
+          - AllowPasswdChange
+          - Hash
+          - MailDBName
           - Skin
           - UseLDAP
           - EnableDebug
@@ -71,6 +74,8 @@ Metadata:
         default: SSH public key for the AdminUser
       AllowFakeCert:
         default: Allow fake certificate from LetsEncrypt
+      AllowPasswdChange:
+        default: Enable passowrd plugin
       AlternativeIAMRole:
         default: Alternative IAM Role
       AlternativeInitializationScript:
@@ -85,12 +90,16 @@ Metadata:
         default: Enable Roundcube debugging
       EnvironmentVariables:
         default: Environment Variables
+      Hash:
+        default: Password hashing algorithm
       RoundcubeAMIOS:
         default: AMI ID for Roundcube Servers
       RoundcubeInstanceType:
         default: Instance Type
       RoundcubeSecurityGroup:
         default: Roundcube Security Group
+      MailDBName:
+        default: the name of the mail database
       MailServerPrivateDNS:
         default: Private DNS Name for the primary mail server
       NumberOfSubnets:
@@ -135,6 +144,14 @@ Parameters:
     Default: false
     Description: Add the LetsEncrypt root and intermediate certificates for
       fake LetsEncrypt to the trusted CAs
+    Type: String
+  AllowPasswdChange:
+    AllowedValues:
+      - true
+      - false
+    Default: true
+    Description: Enable the Roundcube password pluging to allow users to
+      change their password themselves
     Type: String
   AlternativeIAMRole:
     Description: 'Specify an existing IAM Role name to attach to the server.
@@ -188,6 +205,22 @@ Parameters:
       use in bootstrapping by the alternative initialization script. Variables
       must be in the format KEY=VALUE. VALUE cannot contain commas.'
     Default: ''
+    Type: String
+  Hash:
+    AllowedValues:
+      - sha256-crypt
+      - sha512-crypt
+    Default: sha512-crypt
+    Description: Hashing algorithm used when users change their password. If
+      you're moving from an existing Flurdy installation, current passwords
+      will be SHA256-CRYPT. Leaving this at SHA512-CRYPT will migrate users
+      to the stronger encryption as they update their passwords.
+    Type: String
+  MailDBName:
+    Default: ""
+    Description: 'The name of the mail database. Used to grant additional
+      privileges on the mail database for the Roundcube usere, if password
+      modification is enabled.'
     Type: String
   MailServerPrivateDNS:
     Default: ""
@@ -299,6 +332,8 @@ Conditions:
     !Equals [!Ref EnableDebug, true]
   FakeSSL:
     !Equals [!Ref AllowFakeCert, true]
+  InstallPassword:
+    !Equals [!Ref AllowPasswdChange, true]
   NumberOfSubnets1:
     !Equals [1, !Ref NumberOfSubnets]
   NumberOfSubnets2:
@@ -604,6 +639,13 @@ Resources:
               mode: "000400"
               owner: "root"
               group: "root"
+            /tmp/setup.password.mysql:
+              content: !Sub |
+                GRANT SELECT,UPDATE
+                ON ${MailDBName}.* TO '${RoundcubeDBUser}'@'%';
+              mode: "000400"
+              owner: "root"
+              group: "root"
             /tmp/password:
               content: !Sub ${RoundcubeDBPass}
               mode: "000400"
@@ -670,6 +712,26 @@ Resources:
               mode: "000400"
               owner: "root"
               group: "root"
+            /tmp/password.inc.php:
+              content:
+                Fn::Sub:
+                  - |
+                    <?php
+                    $config['password_driver'] = 'sql';
+                    $config['password_confirm_current'] = true;
+                    $config['password_algorithm'] = '${Hash}';
+                    $config['password_algorithm_prefix'] = '{CRYPT}';
+                    $config['password_db_dsn'] =
+                        'mysql://${RoundcubeDBUser}:PASSWORD' .
+                        '@${RDSHost}/${MailDBName}';
+                    $config['password_query'] =
+                        'UPDATE users SET crypt = %P where id = %u';
+                  - RDSHost:
+                      Fn::ImportValue:
+                        !Sub '${DatabaseStackName}-MasterDBEndpoint'
+              mode: "000400"
+              owner: "apache"
+              group: "apache"
           commands:
             01_get_roundcube:
               command: !Join
@@ -889,6 +951,61 @@ Resources:
                 - echo "Fake CA cert chain not installed"
               cwd: /tmp
               test: "[[ -f fakelerootx1.pem && -f fakeleintermediatex1.pem ]]"
+            26_url_encode_password:
+              # Apparently the password has to be URL encoded ... though I can't
+              # find that documented anywhere :(
+              command: !Join
+                - ''
+                - - 'sed -i "s/PASSWORD/`cat password | python -c '
+                  - "'import urllib; print urllib.quote(raw_input())'`/"
+                  - '" password.inc.php'
+              cwd: /tmp
+            27_grant_roundcube_permissions_on_maildb:
+              command: !If
+                - InstallPassword
+                - !Join
+                  # The aws CLI query to get the secrets from the Secrets
+                  # Manager are a little gross here. OK, a lot gross — because
+                  # the actual SecretString returns a String, not an object
+                  # that is further queryiable with JMESPath. For example
+                  # it might output
+                  #
+                  # {"user":"secretuser", "password":"secretpass"}
+                  #
+                  # the above could be further queried by jq ... but jq isn't
+                  # installed be default, whereas grep is, so we do this the
+                  # old fashioned way. grep.
+                  - ''
+                  - - "mysql -u "
+                    - !Sub "`aws --region ${AWS::Region} secretsmanager "
+                    - "get-secret-value --secret-id "
+                    - !Sub "${DatabaseStackName}-dbcreds "
+                    - "--query SecretString --output text | grep -Po "
+                    - "'user\":\"\\K.*?(?=\")'` "
+                    - "--password="
+                    - !Sub "`aws --region ${AWS::Region} secretsmanager "
+                    - "get-secret-value --secret-id "
+                    - !Sub "${DatabaseStackName}-dbcreds "
+                    - "--query SecretString --output text | grep -Po "
+                    - "'password\":\"\\K.*?(?=\")'` -h "
+                    - Fn::ImportValue:
+                        !Sub ${DatabaseStackName}-MasterDBEndpoint
+                    - " </tmp/setup.password.mysql"
+                - rm /tmp/setup.password.mysql
+            28_enable_password:
+              command: !If
+                - InstallPassword
+                - sed -i "/archive',/a     'password'," config.inc.php
+                - echo "Not enabling password plugin"
+              cwd: /var/www/html/config
+              test: "[[ -f config.inc.php ]]"
+            28_config_password_plugin:
+              command: !If
+                - InstallPassword
+                - mv /tmp/password.inc.php config.inc.php
+                - echo "skipping password config, not enabled"
+              cwd: /var/www/html/plugins/password
+              test: "[[ -f /tmp/password.inc.php && ! -f config.inc.php ]]"
           services:
             sysvinit:
               httpd:

@@ -178,20 +178,20 @@ Flurdy uses the following MySQL syntax to enter passwords into the database:
 
 encrypt('apassword', CONCAT('$5$', MD5(RAND())))
 
-Unfortunately, the `encrypt` function was depricated in MySQL 5.7.6, and
-removed in MySQL 8.0.3. We're
-using a more recent version (8.0.15 as of this writing); therefore, we can
-no longer use this syntax for injection of new passwords.
+Unfortunately, the `encrypt` function was depricated in MySQL 5.7.6,
+and removed in MySQL 8.0.3. We're using a more recent version (8.0.15
+as of this writing); therefore, we can no longer use this syntax
+for injection of new passwords.
 
 In fact, there does not appear to be any way to perform SHA256-CRYPT
 natively in MySQL anymore, so to manually enter passwords in the database,
 you'll need to generate the hash on the command line
 
-doveadm pw -s SHA256-CRYPT -p apassword
+`doveadm pw -s SHA256-CRYPT -p <apassword>`
 
 The result will be something like
 
-{SHA256-CRYPT}$5$9m8G1.WomxSJUu8K$uu3Ky9Lsoa9XHtmyaNtV./MjAc3GP45Ucxrg5i1PEI8
+`{SHA256-CRYPT}$5$9m8G1.WomxSJUu8K$uu3Ky9Lsoa9XHtmyaNtV./MjAc3GP45Ucxrg5i1PEI8`
 
 You can then take everything after `{SHA256-CRYPT}` (<the hash>) and add it
 to the database using the Flurdy syntax:
@@ -199,6 +199,8 @@ to the database using the Flurdy syntax:
 INSERT INTO users (id,name,maildir,crypt) VALUES
 	('xandros@blobber.org','xandros','xandros/','<the hash>');
 
+You actually could, and probably should, also include the `{SHA256-CRYPT}`
+as well (i.e., just put the whole output of `dovadm` into the database.
 For more details, see [Password Storage], below.
 
 #### Firewall
@@ -327,6 +329,9 @@ Connect postfix and postgrey via unix socket instead of TCP.
 
 I install Roundcube from the github source rather than the distribution
 because the distributed version is ancient.
+
+Also, you have the option to inable the Roundcube password plugin, which
+allows users to change their own passwords.
 
 #### Extend - SPF Verification
 
@@ -558,6 +563,53 @@ Use ACM to request a certificate or import a certificate into ACM. To use an ACM
 
 ### Password Storage
 
+The Dovecot recommendation for hashed passwords is to "choose the strongest
+crypt scheme that’s supported by your system." In this case, that's
+SHA512-CRYPT. The package manager is currently installing Dovecot 2.2.36.
+As of Dovecot 2.3.0, Dovecot natively supports BLF-CRYPT (Blowfish crypt),
+which is considered stronger.
+
+Dovecot allows you to store passwords with a hint to tell it which
+encryption scheme to use if the default scheme doesn't work, by prepending
+the encryption type in braces. So, for example, 
+
+`$5$PgdnNT4KA8Y2djhO$DFV4eHO7U/6SWucFE0PjgsA7ce9PeS4.uCCUVeta717`
+
+becomes
+
+`{SHA256-CRYPT}$5$PgdnNT4KA8Y2djhO$DFV4eHO7U/6SWucFE0PjgsA7ce9PeS4.uCCUVeta717`
+
+Mostly, you probably don't _need_ to do this, as the Jeremy Dovecot
+instructions set the default_pass_scheme to `CRYPT` instead of, for example,
+SHA256-CRYPT. According to the doc's, "Dovecot uses libc’s `crypt()` function,
+which means that `CRYPT` is usually able to recognize `MD5-CRYPT` and
+possibly also other password schemes. See all of the `*-CRYPT` ...". In
+practice, this seems to be true, and we can leave `CRYPT` as the default
+passwrod scheme, and it works fine with `SHA256-CRYPT` and `SHA512-CRYPT`
+without prepending the hint. However, it's probably good practice to start
+prepending the hint, as at some future point it's likely you'll want to
+migrate to a better scheme (e.g., when Blowfish becomes available), and
+there's no guarantee that the default `CRYPT` will work at that point.
+
+#### SHA256 vs SHA256-CRYPT and salt
+
+This is here mostly to help people avoid rabbit holes I've already navigated.
+
+SHA256 (and SHA512) is a strong hash; however, attackers are clever.
+Because people don't generally use strong passwords, and because they often
+use the same passwords in multiple places, many passwords can be gleaned
+from a rainbow table (a table that takes known hashes and maps them to
+known passwords). To prevent this, it is recommended to always "salt" your
+passwords. The idea is that by adding a unique, per-user string to their
+password at the time the hash is computed, the hash won't be the same on
+any two systems and rainbow tables will become useless.
+
+For this reason, you should not use SHA-256 (or SHA-512) without a per-user
+salt. The salt can be stored in a separate column in the database, or as
+part of the hash string, as long as your systems all know which part of the
+stored string is the hash. It doesn't matter if an attacker learns the salt,
+so there's no need to obfuscate it.
+
 The Flurdy instructions use the MySQL `encrypt` function to store a salted
 hash of each user's password. The `encrypt` function actually relies on the
 underlying Unix `crypt()` system call, and the behavior may vary depending
@@ -575,11 +627,19 @@ The `id` is used to specify which encryption method is used. In the case of
 Flurdy, this is `5`, which tells glibc to use SHA-256. The salt is the
 per-user plain-text salt added into the hash to prevent rainbow attacks.
 The "enrypted" part, then, is the SHA-256 hash of the plain-text password
-combined with a unique per-user salt. For better or worse, the crypt
-library's SHA256 implementation does not trivially append the salt to the
-plaintext password, instead it needs to know which parts are the salt and
-which parts are the password (see [crypt description] by one of the glibc
-maintainers).
+combined with a unique per-user salt. So far, so good.
+
+For better or worse, the crypt library's SHA256 implementation does
+not trivially append the salt to the plaintext password, instead
+it needs to know which parts are the salt and which parts are the
+password (see [crypt description] by one of the glibc maintainers), and
+uses them in a moderately complicated way, which (amongst other things)
+does not appear to be replicable with MySQL 8 functions.
+
+After googling around for this for quite a while, I found several people
+on ServerFault and StackOverflow using SHA512 without the salt. This seems
+like a bad idea, so I gave up on doing this with MySQL functions and
+use the doveadm-pw utility when I need to manually generate paswwords.
 
 
 

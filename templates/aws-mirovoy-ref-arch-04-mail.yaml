@@ -2008,10 +2008,8 @@ Resources:
                             dbname=${MailDBName} \
                             user=${MailDBUser} password=${MailDBPassword}
 
-                    #We'll be using the encrypted password from the mysql
-                    #database. This is a change from xec.net and Flurdy,
-                    #which use CRYPT
-                    default_pass_scheme = SHA256
+                    # See the README for why this works.
+                    default_pass_scheme = CRYPT
 
                     #Set the password query to point to the users table:
                     password_query = SELECT id AS user, crypt AS password, \
