@@ -365,14 +365,20 @@ Resources:
 Outputs:
 
   Vpc:
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", "Vpc"]]
     Value: !Ref Vpc
   VpcCidr:
     Value: !Ref VpcCidr
   PublicSubnet1:
     Condition: AZ1
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", "PublicSubnet1"]]
     Value: !Ref PublicSubnet1
   PublicSubnet2:
     Condition: AZ2
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", "PublicSubnet2"]]
     Value: !Ref PublicSubnet2
   AppSubnet1:
     Condition: AZ1
@@ -404,6 +410,8 @@ Outputs:
            !Join [',', [!Ref DataSubnet1, !Ref DataSubnet2]]
       ]
   AppSubnet:
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", "AppSubnet"]]
     Value:
       !If [NumberOfAZs1, !Ref AppSubnet1,
            !Join [',', [!Ref AppSubnet1, !Ref AppSubnet2]]
