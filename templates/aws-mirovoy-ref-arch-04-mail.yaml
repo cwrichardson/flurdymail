@@ -2,8 +2,9 @@
 AWSTemplateFormatVersion: 2010-09-09
 
 Description: 'Mirovoy Reference Architecture - Create mail servers
-    This template creates a Flurdy mail server, either as Postfix+Dovecot
-    primary mail server or postfix backup mail server.'
+    This template creates a primary mail server that runs courier-postfix
+    for inbound and outbound mail, and a backup MX server in a
+    separate AZ.'
 
 Metadata:
 
@@ -30,7 +31,7 @@ Metadata:
       - Label:
           default: Mail EC2 Instance Parameters
         Parameters:
-          - ServerName
+          - PrimaryServerName
           - VirtualUID
           - EC2KeyName
           - MailInstanceType
@@ -38,7 +39,13 @@ Metadata:
           - MailSecurityGroup
           - StorageStackName
           - UseSwap
-          - Subnet
+          - PrimarySubnet
+      - Label:
+          default: Backup Mail EC2 Instance Parameters
+        Parameters:
+          - BackupServerName
+          - BackupMailInstanceType
+          - BackupSubnet
       - Label:
           default: Create Admin User
         Parameters:
@@ -125,6 +132,12 @@ Metadata:
         default: Alternative superuser account to create
       AdminPubKey:
         default: SSH public key for the AdminUser
+      BackupMailInstanceType:
+        default: Backup Mail Instance Type
+      BackupServerName:
+        default: The name of the backup mail server
+      BackupSubnet:
+        default: Subnet in which to place the backup mail server
       Banner:
         default: SMTPD banner message
       CertFileDir:
@@ -166,7 +179,13 @@ Metadata:
       MailAMIID:
         default: AMI ID for Mail Servers
       MailDBBackup:
-        default: A backup of your mail database, to restore.
+        default: Mail Database Backup
+      MailDBName:
+        default: Mail Database Name
+      MailDBUser:
+        default: Mail Database Username
+      MailDBPassword:
+        default: Mail Database Password
       MailSecurityGroup:
         default: Mail Security Group
       MaxBackoffTime:
@@ -185,6 +204,10 @@ Metadata:
         default: Open DKIM Domains
       Origin:
         default: My origin
+      PrimaryServerName:
+        default: The name of the primary mail server
+      PrimarySubnet:
+        default: Subnet in which to place the primary mail server
       RecipientLimit:
         default: Max in the "to" line
       RelayHost:
@@ -197,8 +220,6 @@ Metadata:
         default: Amavisd sa_kill_level_deflt
       SetMyHost:
         default: Set myhost and mydomain
-      ServerName:
-        default: Mail DNS Name
       SkelFileDir:
         default: S3 Directory for /etc/skel files
       SoftErrLimit:
@@ -209,8 +230,6 @@ Metadata:
         default: Enable acme.sh debugging
       StorageStackName:
         default: Name for the stack that created the EBS volumes
-      Subnet:
-        default: Subnet in which to place the mail server
       UnknownLocalErrorCode:
         default: Temp or perm unknown local address error code
       UseSwap:
@@ -256,6 +275,27 @@ Parameters:
       admin user (ec2-user). Probably just cut and paste the contents
       of your id_rsa.pub file for the user.'
     Type: String
+  BackupServerName:
+    AllowedPattern: ^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$
+    Default: 'mx2.example.com'
+    Description: 'The fully qualified domain name for the backup mail server.
+      In addition to being put into /etc/mailname, this will also be used for
+      the creation of a LetsEncrypt certificate, if you use LetsEncrypt, below.'
+    Type: String
+  BackupMailInstanceType:
+    AllowedValues:
+      - t2.nano
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+    ConstraintDescription: Must be a valid Amazon EC2 instance type.
+    Default: t2.nano
+    Description: The Amazon EC2 instance type for your web instances.
+    Type: String
+  BackupSubnet:
+    Description: 'Subnet in which to place the backup mail server.'
+    Type: List<AWS::EC2::Subnet::Id>
   Banner:
     Default: "$myhostname ESMTP $mail_name"
     Description: What to display when someone connects for SMTP.
@@ -334,8 +374,8 @@ Parameters:
     Description: 'The Route53 Hosted Zone that includes the mail server. This
       will be used for automatic authorization during the creation process for
       the LetsEncrypt SSL certificate, so it should match the domain of the
-      mail server. For example, if you put "mx1.mail.example.com" as
-      the name of the server, then this should be the Hosted Zone ID
+      primary mail server. For example, if you put "mx1.mail.example.com" as
+      the name of the primary server, then this should be the Hosted Zone ID
       for the "mail.example.com" zone.'
     Type: List<AWS::Route53::HostedZone::Id>
   OpenDkimDomains:
@@ -343,6 +383,16 @@ Parameters:
     Description: "Domain(s) whose email should be signed by opendkim. A comma
       separated list without spaces (e.g., example,com,example.co.uk)"
     Type: String
+  PrimaryServerName:
+    AllowedPattern: ^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$
+    Default: 'mail.example.com'
+    Description: 'The fully qualified domain name for the primary mail server.
+      In addition to being put into /etc/mailname, this will also be used for
+      the creation of a LetsEncrypt certificate, if you use LetsEncrypt, below.'
+    Type: String
+  PrimarySubnet:
+    Description: 'Subnet in which to place the primary mail server.'
+    Type: List<AWS::EC2::Subnet::Id>
   SAFinalDest:
     AllowedValues:
       - D_PASS
@@ -365,13 +415,6 @@ Parameters:
       see how much spam is getting through, vs. how many false positives
       you have."
     Type: Number
-  ServerName:
-    AllowedPattern: ^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$
-    Default: 'mail.example.com'
-    Description: 'The fully qualified domain name for the mail server.
-      In addition to being put into /etc/mailname, this will also be used for
-      the creation of a LetsEncrypt certificate, if you use LetsEncrypt, below.'
-    Type: String
   SetMyHost:
     AllowedValues:
       - true
@@ -381,7 +424,7 @@ Parameters:
       get inserted into mail headers. By default, those values are
       host.example.com and example.com, respectively. If you set this to
       true, then those defaults will be changed to the host and domain
-      you configured as the server name, above."
+      you configured as the primary server name, above."
     Type: String
   SpfTimeLimit:
     Default: 3600
@@ -395,9 +438,6 @@ Parameters:
     Description: "Set the --debug flag for acme.sh, which may prove useful
       if you're having trouble getting an SSL cert."
     Type: String
-  Subnet:
-    Description: 'Subnet in which to place the mail server.'
-    Type: List<AWS::EC2::Subnet::Id>
   VirtualUID:
     Default: 5000
     Description: The UID to be assigned to the user "virtual" which owns all
@@ -1504,7 +1544,7 @@ Resources:
                       - ''
                   - --config-home /etc/acmesh
                   - --issue -d
-                  - !Ref ServerName
+                  - !Ref PrimaryServerName
                   - --dns dns_aws
                   - --dnssleep
                   - !Ref DNSSleep
@@ -1518,24 +1558,24 @@ Resources:
                       - ''
                   - --config-home /etc/acmesh
                   - --install-cert -d
-                  - !Ref ServerName
+                  - !Ref PrimaryServerName
                   - --cert-file
                   - Fn::Join:
                       - ''
                       - - /etc/pki/dovecot/certs/
-                        - !Ref ServerName
+                        - !Ref PrimaryServerName
                         - .cert.pem
                   - --fullchain-file
                   - Fn::Join:
                       - ''
                       - - /etc/pki/dovecot/certs/
-                        - !Ref ServerName
+                        - !Ref PrimaryServerName
                         - .chain.pem
                   - --key-file
                   - Fn::Join:
                       - ''
                       - - /etc/pki/dovecot/private/
-                        - !Ref ServerName
+                        - !Ref PrimaryServerName
                         - .key
 
         install_mailserver:
@@ -1594,7 +1634,7 @@ Resources:
         config_postfix:
           files:
             /etc/mailname:
-              content: !Ref ServerName
+              content: !Ref PrimaryServerName
               mode: "000644"
               owner: "root"
               group: "root"
@@ -1668,9 +1708,9 @@ Resources:
                 smtpd_tls_session_cache_timeout = 3600s
                 tls_random_source = dev:/dev/urandom
                 smtpd_tls_cert_file =
-                    /etc/pki/dovecot/certs/${ServerName}.chain.pem
+                    /etc/pki/dovecot/certs/${PrimaryServerName}.chain.pem
                 smtpd_tls_key_file =
-                    /etc/pki/dovecot/private/${ServerName}.key
+                    /etc/pki/dovecot/private/${PrimaryServerName}.key
                 smtpd_tls_session_cache_database =
                     btree:/var/lib/postfix/smtpd_scache
                 smtp_tls_session_cache_database =
@@ -2223,28 +2263,28 @@ Resources:
                 - ''
                 - - "sed -i '/^#ssl_key =.*/a "
                   - "ssl_cert = </etc/pki/dovecot/certs/"
-                  - !Ref ServerName
+                  - !Ref PrimaryServerName
                   - ".chain.pem' 10-ssl.conf"
               cwd: /etc/dovecot/conf.d
               test: !Join
                 - ''
                 - - "test -f "
                   - "/etc/pki/dovecot/certs/"
-                  - !Ref ServerName
+                  - !Ref PrimaryServerName
                   - ".chain.pem"
             02_install_ssl_key:
               command: !Join
                 - ''
                 - - "sed -i '/^#ssl_cert =.*/a "
                   - "ssl_key = </etc/pki/dovecot/private/"
-                  - !Ref ServerName
+                  - !Ref PrimaryServerName
                   - ".key' 10-ssl.conf"
               cwd: /etc/dovecot/conf.d
               test: !Join
                 - ''
                 - - "test -f "
                   - "/etc/pki/dovecot/private/"
-                  - !Ref ServerName
+                  - !Ref PrimaryServerName
                   - ".key"
             03_hup_dovecot:
               command: systemctl restart dovecot
@@ -2732,7 +2772,7 @@ Resources:
       KeyName: !Ref EC2KeyName
       SecurityGroupIds:
         - !Ref MailSecurityGroup
-      SubnetId: !Select [0, !Ref Subnet]
+      SubnetId: !Select [0, !Ref PrimarySubnet]
       Tags:
         -
           Key: Name
@@ -2979,7 +3019,7 @@ Resources:
                   - Fn::ImportValue: !Join
                       - ':'
                       - - !Ref StorageStackName
-                        - FormatLog
+                        - FormatBackupLog
                   - "&& mkfs -t xfs /dev/xvdl) ||"
                   - 'echo "Skipping format of backup mail log"'
               test: '[ "`lsblk -no FSTYPE /dev/xvdl`" != "xfs" ]'
@@ -3008,7 +3048,7 @@ Resources:
                   - Fn::ImportValue: !Join
                       - ':'
                       - - !Ref StorageStackName
-                        - FormatLog
+                        - FormatBackupLog
                   - "&& rsync -az /tmp/log /var/) ||"
                   - 'echo "Not syncing logs. Some log info will be in /tmp/log"'
               test: "test -d /var/log"
@@ -3051,7 +3091,7 @@ Resources:
                   - Fn::ImportValue: !Join
                       - ':'
                       - - !Ref StorageStackName
-                        - FormatSpool
+                        - FormatBackupSpool
                   - "&& mkfs -t xfs /dev/xvds) ||"
                   - 'echo "Skipping format of backup spool"'
               test: !Join
@@ -3083,7 +3123,7 @@ Resources:
                   - Fn::ImportValue: !Join
                       - ':'
                       - - !Ref StorageStackName
-                        - FormatSpool
+                        - FormatBackupSpool
                   - "&& rsync -az /tmp/spool /var/) ||"
                   - 'echo "Not restoring /tmp/spool"'
               test: "test -d /var/spool"
@@ -3583,7 +3623,7 @@ Resources:
                   - Fn::ImportValue: !Join
                       - ':'
                       - - !Ref StorageStackName
-                        - FormatSpool
+                        - FormatBackupSpool
                   - "&& mkdir /var/spool/mail/virtual ) ||"
                   - 'echo "Skipping creating /var/spoolmail/virtual"'
               test: "test ! -e /var/spool/mail/virtual"
