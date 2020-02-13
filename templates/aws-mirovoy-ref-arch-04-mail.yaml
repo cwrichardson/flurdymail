@@ -1349,7 +1349,45 @@ Resources:
               owner: "root"
               group: "root"
           commands:
-            00_restore_mail_db:
+            00_create_mail_db:
+              command: !Join
+                # The aws CLI query to get the secrets from the Secrets
+                # Manager are a little gross here. OK, a lot gross — because
+                # the actual SecretString returns a String, not an object
+                # that is further queryiable with JMESPath. For example
+                # it might output
+                #
+                # {"user":"secretuser", "password":"secretpass"}
+                #
+                # the above could be further queried by jq ... but jq isn't
+                # installed be default, whereas grep is, so we do this the
+                # old fashioned way. grep.
+                - ''
+                - - "mysql -u "
+                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
+                  - "get-secret-value --secret-id "
+                  - !Sub "${DatabaseStackName}-dbcreds "
+                  - "--query SecretString --output text | grep -Po "
+                  - "'user\":\"\\K.*?(?=\")'` "
+                  - "--password="
+                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
+                  - "get-secret-value --secret-id "
+                  - !Sub "${DatabaseStackName}-dbcreds "
+                  - "--query SecretString --output text | grep -Po "
+                  - "'password\":\"\\K.*?(?=\")'` -h "
+                  - Fn::ImportValue: !Sub ${DatabaseStackName}-MasterDBEndpoint
+                  - " </tmp/setup.mysql"
+              test: !Join
+                - ''
+                - - "! $(mysql -u "
+                  - !Ref MailDBUser
+                  - " --password='"
+                  - !Ref MailDBPassword
+                  - "' -h "
+                  - Fn::ImportValue: !Sub
+                      '${DatabaseStackName}-MasterDBEndpoint'
+                  - " >/dev/null 2>&1 </dev/null)"
+            01_restore_mail_db:
               command: !Join
                 # The aws CLI query to get the secrets from the Secrets
                 # Manager are a little gross here. OK, a lot gross — because
@@ -1388,44 +1426,6 @@ Resources:
                   - Fn::ImportValue: !Sub
                       '${DatabaseStackName}-MasterDBEndpoint'
                   - " >/dev/null 2>&1 </dev/null) && -f /tmp/backup.mysql ]]"
-            01_create_mail_db:
-              command: !Join
-                # The aws CLI query to get the secrets from the Secrets
-                # Manager are a little gross here. OK, a lot gross — because
-                # the actual SecretString returns a String, not an object
-                # that is further queryiable with JMESPath. For example
-                # it might output
-                #
-                # {"user":"secretuser", "password":"secretpass"}
-                #
-                # the above could be further queried by jq ... but jq isn't
-                # installed be default, whereas grep is, so we do this the
-                # old fashioned way. grep.
-                - ''
-                - - "mysql -u "
-                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
-                  - "get-secret-value --secret-id "
-                  - !Sub "${DatabaseStackName}-dbcreds "
-                  - "--query SecretString --output text | grep -Po "
-                  - "'user\":\"\\K.*?(?=\")'` "
-                  - "--password="
-                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
-                  - "get-secret-value --secret-id "
-                  - !Sub "${DatabaseStackName}-dbcreds "
-                  - "--query SecretString --output text | grep -Po "
-                  - "'password\":\"\\K.*?(?=\")'` -h "
-                  - Fn::ImportValue: !Sub ${DatabaseStackName}-MasterDBEndpoint
-                  - " </tmp/setup.mysql"
-              test: !Join
-                - ''
-                - - "! $(mysql -u "
-                  - !Ref MailDBUser
-                  - " --password='"
-                  - !Ref MailDBPassword
-                  - "' -h "
-                  - Fn::ImportValue: !Sub
-                      '${DatabaseStackName}-MasterDBEndpoint'
-                  - " >/dev/null 2>&1 </dev/null)"
             02_vgid_tables:
               command: sed -i "s/VIRTUALGID/`id -g virtual`/" /tmp/tables.mysql
               cwd: /tmp
