@@ -2631,15 +2631,10 @@ Resources:
               test: "[[ -d /var/spool/postfix/var/run/opendkim ]]"
             05_add_postfix_to_opendkim:
               command: usermod -G opendkim postfix
-            06_add_domains_to_opendkim:
-              command: !Join
-                - ''
-                - - "sed -i '/^# Domain/a Domain "
-                  - !Ref OpenDkimDomains
-                  - \nSubDomains\tyes
-                  - "' opendkim.conf"
+            06_set_opendkim_to_sign_and_verify:
+              command: "sed -i 's/^Mode.*/Mode	sv/' opendkim.conf"
               cwd: /etc
-              test: "[[ -f opendkim.conf ]]"
+              test: grep "^Mode" opendkim.conf
             07_enable_external_ignore_list:
               command: !Join
                 - ' '
@@ -2668,14 +2663,21 @@ Resources:
                   - opendkim.conf
               cwd: /etc
               test: "[[ -f opendkim.conf ]]"
-            11_disable_keyfile:
+            11_disable_selector:
+              command: !Join
+                - ' '
+                - - sed -i 's/^Selector/# Selector/'
+                  - opendkim.conf
+              cwd: /etc
+              test: "[[ -f opendkim.conf ]]"
+            12_disable_keyfile:
               command: !Join
                 - ' '
                 - - sed -i 's/^KeyFile/# KeyFile/'
                   - opendkim.conf
               cwd: /etc
               test: "[[ -f opendkim.conf ]]"
-            12_config_postfix_opendkim_milter:
+            13_config_postfix_opendkim_milter:
               command: !Join
                 - ' '
                 - - echo "milter_default_action = accept" >> main.cf &&
@@ -2686,13 +2688,13 @@ Resources:
                   - unix:/var/spool/postfix/var/run/opendkim/opendkim.sock"
                   - '>> main.cf'
               cwd: /etc/postfix
-            13_disable_amavisd_milter:
+            14_disable_amavisd_milter:
               command: !Join
                 - ''
                 - - sed -i 's/unknown_recipient_checks/
                   - unknown_recipient_checks,no_milters/' master.cf
               cwd: /etc/postfix
-            14_gen_opendkim_keys:
+            15_gen_opendkim_keys:
               command: !Join
                 - ' '
                 - - for a in `cat dkim_domains | tr "," "\n"`; do
@@ -2700,14 +2702,14 @@ Resources:
                   - sudo chown opendkim:opendkim default.*;
                   - sudo mkdir /etc/opendkim/keys/$a;
                   - sudo mv default.* /etc/opendkim/keys/$a/;
-                  - sudo echo "$a default._domainkey.$a" >>
+                  - sudo echo "*@$a default._domainkey.$a" >>
                   - /etc/opendkim/SigningTable;
                   - sudo echo "default._domainkey.$a
                   - $a:default:/etc/opendkim/keys/$a/default.private"
                   - '>> /etc/opendkim/KeyTable; done'
               cwd: /tmp
               test: "[[ -f dkim_domains && -d /etc/opendkim ]]"
-            15_restart_opendkim:
+            16_restart_opendkim:
               command: systemctl restart opendkim
 
         spf_verify:
