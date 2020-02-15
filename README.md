@@ -17,7 +17,7 @@ Jerome] for Dovecot support) on AWS using [AWS CloudFormation].
   - [TL;DR](#tldr--launch-the-stack)
   - [Overview](#overview)
 - [Usage]
-  - [Populate CloudFront Helpers](#populate-cloudfront-helpers)
+  - [Populate CloudFormation Helpers](#populate-cloudformation-helpers)
   - [Create an AWS SSL Certificate](#create-an-aws-ssl-certificate)
   - [Run The Templates](#run-the-templates)
   - [Populate Your Database](#populate-your-database)
@@ -41,7 +41,7 @@ Jerome] for Dovecot support) on AWS using [AWS CloudFormation].
     - [Postgrey](#postgrey)
     - [RoundCube](#roundcube)
     - [SPF Verification](#extend--spf-verificaiton)
-    - [DKIM[(#extent--dkim)
+    - [DKIM](#extent--dkim)
 - [To Do](#to-do)
 - [Notes](#notes)
 
@@ -209,14 +209,14 @@ data, and to turn services on/off incrementally to aid in testing.
 There are only a few simple steps in order to get your email environment
 up and running:
 
-1. Populate CloudFront Helpers
+1. Populate CloudFormation Helpers
 2. Create an AWS SSL Certificate
 3. Run the templates
 4. Populate your database
 
 That's it!
 
-## Populate CloudFront Helpers
+## Populate CloudFormation Helpers
 
 In the AWS Region where you want to deploy the environment, create
 the following bucket structure:
@@ -259,7 +259,7 @@ services on this same infrastructure, you can include those as well
 ## Run the templates
 
 The simplest way to run this is to just [execute the master
-template](#tldr--launch-thestack) from the AWS Region in which you
+template](#tldr--launch-the-stack) from the AWS Region in which you
 want to deploy the environment. If you're here for the first time,
 this is probably what you should do, just to see it work. However,
 there are a few reasons you may not want to do this.
@@ -272,7 +272,7 @@ simple typo or didn't change a parameter that you really meant to change,
 you don't want to have to wait 30 minutes to fix this. This is worse when
 you're experimenting, as you may have to play around with things several
 times to get them to work. Waiting 30 minutes every time you make a change
-get very annoying, quickly.
+gets very annoying, quickly.
 
 Second, modularity. You may run this stack, and find you really like it.
 Great! Since you like it, you decide to run other services on the
@@ -686,19 +686,21 @@ use a separate setting for the CAcert.
 #### SSL for Web
 
 The SSL certificate for HTTPS are put on an Amazon Application Load
-Balancer (ALB). This certificate come from [AWS Certificate Manager], 
-and must be manually generated. Changing this to allow manual creation is
-on the To Do list, but for now, the process is manual. The reason is, if you generate new ones via a CloudFormation stack, template execution
-will pause in the middle, while you validate the new certificates (which
-can be done either by email or DNS).
-Further, if you're using [CloudFront], you **must** generate or import the
-certificate in the US East (N. Virginia) Region (us-east-1). The first problem
-is minor, but the second one is significant. If and when ClouFormation
-supports creation of certificates in other regions, I'll likely update the
-templates to support certificate creation. In the meantime, you must manually
-create a single certificate in your region of choice which covers all of the
-relevant hosts which will be proxied by the ALB (probably something like 
-www.example.com, phpmyadmin.example.com, and webmail.example.com).
+Balancer (ALB). This certificate come from [AWS Certificate Manager],
+and must be manually generated. Changing this to allow manual
+creation is on the To Do list, but for now, the process is manual.
+The reason is, if you generate new ones via a CloudFormation stack,
+template execution will pause in the middle, while you validate the
+new certificates (which can be done either by email or DNS).  Further,
+if you're using [AWS CloudFormation], you **must** generate or
+import the certificate in the US East (N. Virginia) Region (us-east-1).
+The first problem is minor, but the second one is significant. If
+and when ClouFormation supports creation of certificates in other
+regions, I'll likely update the templates to support certificate
+creation. In the meantime, you must manually create a single
+certificate in your region of choice which covers all of the relevant
+hosts which will be proxied by the ALB (probably something like
+`www.example.com`, `phpmyadmin.example.com`, and `webmail.example.com`).
 
 ### Session Cache
 
@@ -715,7 +717,7 @@ in the version that Amazon Linux 2 installs. Instead, they’re all in one
 file /etc/amavisd/amavisd.conf. Additionally amavisd-new installs
 SpamAssasin on its own, including setting up /etc/cron.d/sa-update.
 Additionally additionally, amavisd-new now calls the SpamAssassin perl
-library directly, so spams is no longer launched.
+library directly, so spamd is no longer launched.
 
 ### ClamAV
 
@@ -734,7 +736,7 @@ Connect postfix and postgrey via unix socket instead of TCP.
 I install Roundcube from the github source rather than the distribution
 because the distributed version is ancient.
 
-Also, you have the option to inable the Roundcube password plugin, which
+Also, you have the option to enable the Roundcube password plugin, which
 allows users to change their own passwords.
 
 ### Extend - SPF Verification
@@ -767,7 +769,7 @@ AWS Certificate Manager (ACM) is a service that lets you easily provision, manag
 
 If you don't already have an SSL/TLS certificate for your domain name, it is recommended that you request one using ACM. For more information about requesting an SSL/TLS certificate using ACM, please read the [AWS Certificate Manager User Guide](http://docs.aws.amazon.com/acm/latest/userguide/acm-overview.html).
 
-Use ACM to request a certificate or import a certificate into ACM. To use an ACM certificate with CloudFront (optional input parameter), you must request or import the certificate in the US East (N. Virginia) region. To use an ACM certificate with Amazon ELB - Application Load Balancer (optional input parameter), you must request or import the certificate in the region you create the CloudFormation stack. After you validate ownership of the domain names in your certificate, ACM provisions the certificate. Use the ACM certificate Amazon Resource Name (ARN) as the optional Cloudfront and/or Public ALB ACM certificate input parameters of the master template.
+Use ACM to request a certificate or import a certificate into ACM. To use an ACM certificate with CloudFormation (optional input parameter), you must request or import the certificate in the US East (N. Virginia) region. To use an ACM certificate with Amazon ELB - Application Load Balancer (optional input parameter), you must request or import the certificate in the region you create the CloudFormation stack. After you validate ownership of the domain names in your certificate, ACM provisions the certificate. Use the ACM certificate Amazon Resource Name (ARN) as the optional Cloudfront and/or Public ALB ACM certificate input parameters of the master template.
 
 ## Notes
 
@@ -794,7 +796,7 @@ becomes
 
 Mostly, you probably don't _need_ to do this, as the Jeremy Dovecot
 instructions set the default_pass_scheme to `CRYPT` instead of, for example,
-SHA256-CRYPT. According to the doc's, "Dovecot uses libc’s `crypt()` function,
+`SHA256-CRYPT`. According to the doc's, "Dovecot uses libc’s `crypt()` function,
 which means that `CRYPT` is usually able to recognize `MD5-CRYPT` and
 possibly also other password schemes. See all of the `*-CRYPT` ...". In
 practice, this seems to be true, and we can leave `CRYPT` as the default
@@ -808,7 +810,7 @@ there's no guarantee that the default `CRYPT` will work at that point.
 
 This is here mostly to help people avoid rabbit holes I've already navigated.
 
-SHA256 (and SHA512) is a strong hash; however, attackers are clever.
+SHA256 (also SHA512) is a strong hash; however, attackers are clever.
 Because people don't generally use strong passwords, and because they often
 use the same passwords in multiple places, many passwords can be gleaned
 from a rainbow table (a table that takes known hashes and maps them to
@@ -852,7 +854,7 @@ does not appear to be replicable with MySQL 8 functions.
 After googling around for this for quite a while, I found several people
 on ServerFault and StackOverflow using SHA512 without the salt. This seems
 like a bad idea, so I gave up on doing this with MySQL functions and
-use the doveadm-pw utility when I need to manually generate paswwords.
+use the `doveadm-pw` utility when I need to manually generate paswwords.
 
 ## Testing
 
@@ -885,7 +887,7 @@ the following resources extremely useful:
 [Elastic Load Balancing]: https://aws.amazon.com/elasticloadbalancing/
 [Dovecot]: https://www.dovecot.org
 [dovecot password schemes]:https://doc.dovecot.org/configuration_manual/authentication/password_schemes/
-[dovecto sql authentication]:https://doc.dovecot.org/configuration_manual/authentication/sql/#authentication-sql
+[dovecot sql authentication]:https://doc.dovecot.org/configuration_manual/authentication/sql/#authentication-sql
 [flurdy]: http://flurdy.com/docs/postfix/
 [flurdy edition]: https://flurdy.com/docs/postfix/index.html#editions
 [acme.sh]:https://github.com/Neilpang/acme.sh
