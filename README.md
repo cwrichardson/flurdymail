@@ -16,7 +16,7 @@ Jerome] for Dovecot support) on AWS using [AWS CloudFormation].
   - [Rationale](#rationale)
   - [TL;DR](#tldr--launch-the-stack)
   - [Overview](#overview)
-- [Usage]
+- [Usage](#usage)
   - [Populate CloudFormation Helpers](#populate-cloudformation-helpers)
   - [Create an AWS SSL Certificate](#create-an-aws-ssl-certificate)
   - [Run The Templates](#run-the-templates)
