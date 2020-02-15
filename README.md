@@ -3,32 +3,58 @@
 # **Launching A Flurdy Email Server on AWS with CloudFormation**
 
 ### Version 0.99.1
+(ref [Flurdy 14th edition][flurdy edition], [Jon Jerome])
 
 ---
 
 This reference architecture provides a set of YAML templates for deploying
 primary and backup [Flurdy email servers][flurdy] (as extended by [Jon
-Jerome] for Dovecot support) on AWS using [AWS CloudFormation], The servers
-run
+Jerome] for Dovecot support) on AWS using [AWS CloudFormation].
 
-* [Amazon Linux 2]
-* [Postfix]
-* [Dovecot] IMAP
-* [Amazon RDS MySQL]
-* [Amavis] (amavisd-new with SpamAssassin Perl module)
-* [ClamAV]
-* SASL
-* TLS
-* Postgrey
+- [Introduction](#-introduction)
+  - [Description](#-description)
+  - [Rationale](#-rationale)
+  - [TL;DR](#-tldr--launch-the-stack)
+  - [Overview](#-overview)
+- [Usage]
+  - [Populate CloudFront Helpers](#-populate-cloudfront-helpers)
+  - [Create an AWS SSL Certificate](#-create-an-aws-ssl-certificate)
+  - [Run The Templates](#-run-the-templates)
+  - [Populate Your Database](#-populate-your-database)
+  - [Migration](#-migrating-an-existing-flurdyjeremy-server)
+- [Parameters](#-parameters)
+- [Variances from Flurdy](#-variances-from-flurdy)
+  - [Significant Variances](#-significant-variances)
+  - [Minor Variances](#-minor-variances)
+    - [Encrypted Passwords](#-encrypted-passwords)
+    - [Firewall](#-firewall)
+    - [SASL](#-sasl)
+    - [Alternative Admin User Shell](#-alternative-admin-user-shell)
+    - [Linux Distribution](#-linux-distribution)
+    - [UID and GID](#-gid-and-uid)
+    - [Dovecot SSL](#-dovecot-ssl)
+    - [Dovecot User Query](#-dovecot-user-query)
+    - [SSL Certificates](#-ssl-certificates)
+    - [Session Cache](#-session-cache)
+    - [Amavis and SpamAssassin](#-amavis-and-spamassasin)
+    - [ClamAV](#-clamav)
+    - [Postgrey](#-postgrey)
+    - [RoundCube](#-roundcube)
+    - [SPF Verification](#-extend--spf-verificaiton)
+    - [DKIM[(#-extent--dkim)
+- [To Do](#-to-do)
+- [Notes](#-notes)
 
-with optional additional servers deployed for
+# Introduction
+## Description
 
-* [Roundcube],
-* [phpMyAdmin]
-
-behind
-
-* [Elastic Load Balancing]
+This reference architecture provides a set of YAML templates for deploying
+primary and backup [Flurdy email servers][flurdy] (as extended by [Jon
+Jerome] for Dovecot support) on AWS using [AWS CloudFormation]. The servers
+run [Amazon Linux 2], [Postfix], [Dovecot] IMAP, [Amazon RDS MySQL],
+[Amavis] (amavisd-new with SpamAssassin Perl module), [ClamAV],
+SASL, TLS, and [Postgrey] with optional additional servers deployed for
+[Roundcube], and [phpMyAdmin], behind [Elastic Load Balancing].
 
 The dedicated Flurdy fan will already notice several, minor variations
 from the default Flurdy deployment (the use of Amazon Linux 2 instead
@@ -38,18 +64,18 @@ migration of Roundcube and phpMyAdmin to standalone servers). These and
 other variations are discussed in [Variances from
 Flurdy](#variances-from-flurdy).
 
-**NB**: These templates are beta. They work for me, but that's about
-all I can say. Please try them, break them, and report any problems (or,
-better, submit patches).
+**NB**: This is pre-release (pre-beta even) software. It works for
+me, but that's about all I can say. Please try them, break them,
+and report any problems (or, better, submit patches).
 
-### Rationale
+## Rationale
 
-I've been using Ivar Abrahamsen's excellent Flurdy guide for setting up
-my personal email servers for ... I don't know how long. At least 9
-years, maybe longer. If this is the first time you're setting up an email
-server (or at least, the first time in a long time), I _highly_ recommend
-you go read his guide. However, even with his guide, email is a giant
-PITA.
+I've been using Ivar Abrahamsen's [excellent Flurdy guide][flurdy]
+for setting up my personal email servers for ... I don't know how
+long. Maybe nine year. Maybe longer. If this is the first time
+you're setting up an email server (or at least, the first time in
+a long time), I _highly_ recommend you go read his guide. However,
+even with his guide, email is a giant PITA.
 
 Web servers are easy. DNS is (relatively) easy. But every time I go to touch
 something on an email server (never mind install a new one from scratch),
@@ -63,13 +89,13 @@ Plus, this was a good excuse to learn CloudFormation.
 
 Plus, this was an opportunity to give back to the community. I've been
 a user of open-source projects for decades, but I haven't really
-contributed anything back since I moved to Europe in 2011. To wit, this
+contributed anything since I moved to Europe in 2011. To wit, this
 is my first project on GitHub, so if I'm doing something wrong, don't
 hesitate to let me know. And hopefully others find these templates useful,
 and hopefully you contribute back patches to make them better (see [To
 Do](#to-do)).
 
-_**Chris Richardson**_
+_**[Chris Richardson]**_
 
 ## TL;DR — Launch the Stack
 To launch the entire stack and deploy a Flurdy primary (and, optionally,
@@ -87,12 +113,24 @@ relevant DNS names.
 
 | AWS Region Code | Name | Launch |
 | --- | --- | --- 
-| us-east-1 |US East (N. Virginia)| [![launch-use1](images/launch.png)] |
-| us-east-2 |US East (Ohio)| [![launch-use2](images/launch.png)] |
-| us-west-2 |US West (Oregon)| [![launch-usw2](images/launch.png)] |
-| eu-west-1 |EU (Ireland)| [![launch-euw1](images/launch.png)] |
-| eu-central-1 |EU (Frankfurt)| [![launch-euc1](images/launch.png)] |
-| ap-southeast-2 |AP (Sydney)| [![launch-apse2](images/launch.png)] |
+| us-east-1 |US East (N. Virginia)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| us-east-2 |US East (Ohio)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| us-west-1 |US West (N. California)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=us-west-1#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| us-west-2 |US West (Oregon)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| ap-east-1 |Asia Pacific (Hong Kong)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=ap-east-1#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| ap-south-1 |Asia Pacific (Mumbai)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=ap-south-1#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| ap-northeast-2 |Asia Pacific (Seoul)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=ap-northeast-2#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| ap-southeast-1 |Asia Pacific (Singapore)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=ap-southeast-1#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| ap-southeast-2 |Asia Pacific (Sydney)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=ap-southeast-2#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| ap-northeast-1 |Asia Pacific (Tokyo)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=ap-northeast-1#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| ca-central-1 |Canada (Central)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=ca-central-1#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| eu-central-1 |Europe (Frankfurt)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=eu-east-1#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| eu-west-1 |Europe (Ireland)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=eu-east-1#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| eu-west-2 |Europe (London)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=eu-west-2#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| eu-west-3 |Europe (Paris)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=eu-west-3#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| eu-north-1 |Europe (Stockholm)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=eu-north-1#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| me-south-1 |Middle East (Bahrain)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=me-south-1#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
+| sa-east-1 |South America (São Paulo)| [![cloudformation-launch-stack](images/launch.png)](https://console.aws.amazon.com/cloudformation/home?region=sa-east-1#/stacks/new?stackName=FlurdyMail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/infrastructure/latest/aws-mirovoy-ref-arch-master.yaml) |
 
 ## Overview
 
@@ -166,192 +204,176 @@ after an extended period.
 Finally, you have the option to populate the databases with Flurdy test
 data, and to turn services on/off incrementally to aid in testing.
 
-## Variances from Flurdy
+# Usage
 
-### Significant Variances
+There are only a few simple steps in order to get your email environment
+up and running:
 
-### Minor Variances
+1. Populate CloudFront Helpers
+2. Create an AWS SSL Certificate
+3. Run the templates
+4. Populate your database
 
-#### Encrypted Passwords
+That's it!
 
-Flurdy uses the following MySQL syntax to enter passwords into the database:
+## Populate CloudFront Helpers
 
-encrypt('apassword', CONCAT('$5$', MD5(RAND())))
+In the AWS Region where you want to deploy the environment, create
+the following bucket structure:
 
-Unfortunately, the `encrypt` function was depricated in MySQL 5.7.6,
-and removed in MySQL 8.0.3. We're using a more recent version (8.0.15
-as of this writing); therefore, we can no longer use this syntax
-for injection of new passwords.
+```
+mirovoy-cf-assets/bastion/scripts
+mirovoy-cf-assets/bastion/var/skel
+mirovoy-cf-assets/mail/var/skel
+mirovoy-cf-assets/nat/scripts
+mirovoy-cf-assets/nat/var/skel
+mirovoy-cf-assets/phpmyadmin/scripts
+mirovoy-cf-assets/phpmyadmin/var/skel
+mirovoy-cf-assets/roundcube/scripts
+mirovoy-cf-assets/roundcube/var/skel
+```
 
-In fact, there does not appear to be any way to perform SHA256-CRYPT
-natively in MySQL anymore, so to manually enter passwords in the database,
-you'll need to generate the hash on the command line
+The `mirovoy-cf-assets` bucket need not (indeed, should not) be publicly
+accessible.
 
-`doveadm pw -s SHA256-CRYPT -p <apassword>`
+Clone or download this repository.
 
-The result will be something like
+Populate your new S3 buckets with the files from `cf-helpers`.
 
-`{SHA256-CRYPT}$5$9m8G1.WomxSJUu8K$uu3Ky9Lsoa9XHtmyaNtV./MjAc3GP45Ucxrg5i1PEI8`
+## Create an AWS SSL Certificate
 
-You can then take everything after `{SHA256-CRYPT}` (<the hash>) and add it
-to the database using the Flurdy syntax:
+1. Go to `Security, Identity, & Compliance -> Certificate Manager` in the AWS
+management console.
+2. Click `Request a certificate`.
+3. Select `Request a public certificate` and click `Request a certificate`.
+4. Add domain names.
+5. Choose your validation method and issue the certificate.
 
-INSERT INTO users (id,name,maildir,crypt) VALUES
-	('xandros@blobber.org','xandros','xandros/','<the hash>');
+This is the single certificate used for HTTPS access to the ALB. The domain
+names you add should include both the fully-qualified domain name for your
+phpMyAdmin service (e.g., `phpmyadmin.example.com`) and your roundcube
+service (e.g., `webmail.example.com`). If you're going to run other
+services on this same infrastructure, you can include those as well
+(e.g., `www.example.com`).
 
-You actually could, and probably should, also include the `{SHA256-CRYPT}`
-as well (i.e., just put the whole output of `dovadm` into the database.
-For more details, see [Password Storage], below.
+## Run the templates
 
-#### Firewall
+The simplest way to run this is to just [execute the master
+template](#-tldr--launch-thestack) from the AWS Region in which you
+want to deploy the environment. If you're here for the first time,
+this is probably what you should do, just to see it work. However,
+there are a few reasons you may not want to do this.
 
-This does not install the Shorewall firewall. Instead, it relies on the 
-VPC Public/Private architecture and AWS EC2 Security Groups to provide that
-functionality, so the entire Firewall section of the Flurdy docs can be
-ignored. As they say, "not essential for an EC2 image."
+First, time. If you're experimenting with the configuration, and something
+goes wrong, the whole nest will roll back. By executing the master, you
+can get a Flurdy email server environment up and running in less than 30
+minutes. But, if something goes wrong because, for example, you made a
+simple typo or didn't change a parameter that you really meant to change,
+you don't want to have to wait 30 minutes to fix this. This is worse when
+you're experimenting, as you may have to play around with things several
+times to get them to work. Waiting 30 minutes every time you make a change
+get very annoying, quickly.
 
-#### SASL
+Second, modularity. You may run this stack, and find you really like it.
+Great! Since you like it, you decide to run other services on the
+infrastructure (e.g., your web servers). Also great! (In fact, that's what
+I do). But if you've deployed this from the highest level, then deployed 
+a web server, and then decide you need to reprovision your mail servers for
+some reason, you're stuck taking down the whole nest, which means you also
+have to take down your web servers. This is not ideal.
 
-The entire SASL (Authentication) section of the Flurdy docs can be ignored,
-as the current versions of Postfix and Dovecot support SASL via Dovecot.
+Third, configurability. CloudFormation is limited to 60 configurable
+parameters. That may sound like a lot, but one uses them up surprisingly
+quickly. As a result, running the `flurdy-mail-master` template gives you
+less configurability than running the templates one by one, and running
+the `master` template gives you even less.
 
-#### Alternative Admin User shell
+Fourth, timing. If you're working on changes, you'll ultimately want to
+migrate your existing users and data from your old deployment to your new
+one. That doesn't really matter during the development and testing phases,
+but when it comes time to move, you'll want to spin up a new backup server,
+stop your old servers and snapshot them, and then spin up your new primary
+server using those backups.
 
-When setting up on EC2, the Flurdy docs describe the creation of a [Simple
-Server] as the basis for all future servers.  Part of that description
-includes uploading your private SSH keys, creating a new user, and adding
-that user to certain groups. Finally, it optionally suggests removing the
-default user used by AWS to launch the instances. While this is good
-practice in general, it doesn't really work with CloudFormation, as you
-need the AWS system to continue to be able to access the server. I do
-provide the ability to add an additional admin user, and to add login
-files for that user (.profile .shrc). However, because I'm old and grumpy,
-I use ksh, not bash. That should probably be fine for most people, but if
-you're approximately equally old and grumpy and want bash (or something else),
-you're out of luck for the moment (though, adding the ability to support
-other shells is on the To Do list).
+For these reasons, the way I actually use this in practice is to spin
+up the `infrastructure` nest, then the backup MX, primary MX, and roundcube
+stacks individually. YMMV, and you'll figure out what works best for you.
 
-#### Linux distribution
+## Populate your database
 
-Flurdy uses Ubuntu. Jon Jerome uses Debian. These templates use Amazon
-Linux 2 (probably for [no good reason]).
+In order to access the database, you can either ssh through a bastion host,
+or use the phpMyAdmin web interface. In either case, you'll need to spin
+up an auto-scaling instance. Go to EC2 -> Auto Scaling -> Auto Scaling 
+Groups. Depending on your preference, select either the bastion or the
+phpmyadmin Launch Configuration. Under Actions, select Edit, and then 
+change your Desired and Min number of instances to 1.
 
+Once you have access to your database, you can follow the [Flurdy 
+data](https://flurdy.com/docs/postfix/index.html#data) instructions.
+However, see [Minor variances: encrypted passwords](#-encrypted-passwords)
+before you attempt to do so.
 
-#### GID and UID
+## **Migrating an Existing Flurdy/Jeremy Server**
 
-Flurdy sets the GID and UID for virtual to 5000 in both cases. The UID is
-configurable in these templates, and defaults to 5000 (in general, I default
-to the Flurdy defaults ... that's kind of the point). However, there's no
-good way to set the GID with CloudFormation, so it gets set automatically.
+* Make sure you've run through a new install of the above a few times, and
+everything works as expected.
+* Stop postfix and dovecot on your current mail server
+* Backup /var/spool on your existing mail server
+* Backup your existing mail database
+* Launch this template
+* Update DNS entries
+* Shut down your old server
 
-#### Dovecot SSL
+## Backup /var/spool
 
-Jon Jerome sets it to "yes". I set it to "required". (It's optional for
-server-server SNMP communication, but why let it be optional for IMAP?)
+If you're already running on AWS and /var/spool is a separate volume, the
+easiest thing to do is just create a snapshot of said volume and use it as
+an input to this configuration.
 
-#### Dovecot user query
+If you're running on AWS, but /var/spool isn't it's own volume, the easiest
+thing to do is create a new EBS, attach it to your existing instance,
+copy /var/spool to the new volume, and then create a snapshot of that (and
+delete the EBS so you're not paying for extra storage you don't need).
 
-Jon Jerome uses prefetch to get all of the information in one go. Mostly
-this just works, but in the event you have Roundcube enabled, and a user
-in the database, but that user has not yet received any mail, Dovecot gets
-confused about the directory structure. To fix this (and prevent errors in
-Roundcube) we modify the password_query to prefix "maildir:" to the
-maildir path.
+If you're not on AWS, you'll have to figure out some way to get the data
+from your existing server to the new server. Probably spin up one of these
+first, launch a bastion instance from your new autoscaling group, and then
+rsync over an ssh tunnel to the new server.
 
-#### SSL Certificates
+## Backup your database
 
-##### SSL for Email: Let's Encrypt
+Backup your existing database
 
-These templates default to getting "fake" SSL certificates for the email
-servers from [Let's Encrypt], using [acme.sh]. This is approximately equivalent
-to creating your own CA. The benefit is, once everything is working, you
-can switch the configuration option, and get real SSL certificates that
-will be accepted by people's IMAP clients. The downside is, it only works
-if the primary domain for the mail server has DNS hosted in [Route53]. There
-is an option to not install SSL certificates, and another to let you
-put existing certificates in an S3 bucket and install them from there, but
-neither of those options are tested (and probably don't work).
+`mysqldump --add-drop-table -h mysql_hostserver -u mysql_username`
+    `-p mysql_databasename`
 
-SSL certificates are in /etc/pki/dovecot and there are only two in the default
-letsencrypt style, but the names are slightly different than Dovecot
-instructions specify.
+Put that backup in an S3 bucket, and use it as input to this configuration
+template.
 
-.chain.pem includes the cert, intermediate certs, and CA cert. We no longer
-use a separate setting for the CAcert.
+## Launch this template
 
-##### SSL for Web
+Amazon best practice is to launch this as one entire nested stack. There
+may be reasons that you want to do that; however, in practice, I don't. I
+launch infrastructure as a nested stack, and then separately
+flurdy-mail-master as a nested stack on top of it. The reason for this is
+that I use the infrastructure layer as ... infrastructure. There are lots of
+other things I run on the same infrastructure (e.g., web servers, which are
+a separate nested stack). Use your own judgement.
 
-The SSL certificate for HTTPS are put on an Amazon Application Load
-Balancer (ALB). This certificate come from [AWS Certificate Manager], 
-and must be manually generated. Changing this to allow manual creation is
-on the To Do list, but for now, the process is manual. The reason is, if you generate new ones via a CloudFormation stack, template execution
-will pause in the middle, while you validate the new certificates (which
-can be done either by email or DNS).
-Further, if you're using [CloudFront], you **must** generate or import the
-certificate in the US East (N. Virginia) Region (us-east-1). The first problem
-is minor, but the second one is significant. If and when ClouFormation
-supports creation of certificates in other regions, I'll likely update the
-templates to support certificate creation. In the meantime, you must manually
-create a single certificate in your region of choice which covers all of the
-relevant hosts which will be proxied by the ALB (probably something like 
-www.example.com, phpmyadmin.example.com, and webmail.example.com).
+## Update DNS entries
 
-#### Session Cache
+* Add the SPF, DMARC, and DKIM DNS entries.
+* Add a DNS entry for your new backup mail server at a lower priority than
+your main server, but a higher priority than your existing backup server (if
+you have one)
+* Confirm your new backup server is queuing mail
+* Add DNS entry for <phpmyadmin>.<example>.com (it should point to your new 
+load balancer).
+* Replace your old primary MX record to point to your new primary server
+* Add DNS entry for <webmail>.<example>.com (it should point to your new
+load balancer).
 
-Flurdy has the session cache file locations commented out, but sets the
-cache timeout variable. I’m not sure what the intent here is, but according
-to current postfix documentation, the default values for those commented
-out file locations is “blank”. So, we set them. Also, as we’re using
-postfix > 2.3, we set the lmtp cache database location.
-
-#### Amavis and SpamAssassin
-
-The amavisd-new config files are not broken out under a conf.d directory
-in the version that Amazon Linux 2 installs. Instead, they’re all in one
-file /etc/amavisd/amavisd.conf. Additionally amavisd-new installs
-SpamAssasin on its own, including setting up /etc/cron.d/sa-update.
-Additionally additionally, amavisd-new now calls the SpamAssassin perl
-library directly, so spams is no longer launched.
-
-#### ClamAV
-
-For ClamAV, the only package installed in clamd, which pulls in the other
-requirements. We grab the virus databases directly, to speed up launch,
-but there’s still a problem with current ClamAV, that it takes longer
-than systemctl allows for a service to start, and so we have to add a
-delay.
-
-#### Postgrey
-
-Connect postfix and postgrey via unix socket instead of TCP.
-
-#### Roundcube
-
-I install Roundcube from the github source rather than the distribution
-because the distributed version is ancient.
-
-Also, you have the option to inable the Roundcube password plugin, which
-allows users to change their own passwords.
-
-#### Extend - SPF Verification
-
-The package system for Amazon Linux uses slightly different packages. I
-install python3, and then use pip to install pypolicyd-spf, pyspf, and py3dns.
-The configuration is in /etc/python-policyd-spf.
-
-#### Extend - DKIM
-
-I'm not actually sure this matters, but the configuration syntax for the
-version of OpenDKIM that gets installed by yum appears to have slightly
-different syntax. Instead of
-
-SOCKET="local:/var/spool/postfix/var/run/opendkim/opendkim.sock"
-
-it is
-
-Socket local:/var/spool/postfix/var/run/opendkim/opendkim.sock
-
-## Parameters
+# Parameters
 
 Almost all configuration that is described in the Flurdy documentation
 defaults to that setting, and you should read the docs. However,
@@ -545,6 +567,194 @@ prefix. Then, underneath that, create
 
 and play 'till your heart's content.
 
+# Variances from Flurdy
+
+## Significant Variances
+
+There are no significant variances in the current release.
+
+## Minor Variances
+
+### Encrypted Passwords
+
+Flurdy uses the following MySQL syntax to enter passwords into the database:
+
+encrypt('apassword', CONCAT('$5$', MD5(RAND())))
+
+Unfortunately, the `encrypt` function was depricated in MySQL 5.7.6,
+and removed in MySQL 8.0.3. We're using a more recent version (8.0.15
+as of this writing); therefore, we can no longer use this syntax
+for injection of new passwords.
+
+In fact, there does not appear to be any way to perform SHA256-CRYPT
+natively in MySQL anymore, so to manually enter passwords in the database,
+you'll need to generate the hash on the command line
+
+`doveadm pw -s SHA256-CRYPT -p <apassword>`
+
+The result will be something like
+
+`{SHA256-CRYPT}$5$9m8G1.WomxSJUu8K$uu3Ky9Lsoa9XHtmyaNtV./MjAc3GP45Ucxrg5i1PEI8`
+
+You can then take everything after `{SHA256-CRYPT}` (<the hash>) and add it
+to the database using the Flurdy syntax:
+
+INSERT INTO users (id,name,maildir,crypt) VALUES
+	('xandros@blobber.org','xandros','xandros/','<the hash>');
+
+You actually could, and probably should, also include the `{SHA256-CRYPT}`
+as well (i.e., just put the whole output of `dovadm` into the database.
+For more details, see [Password Storage], below.
+
+### Firewall
+
+This does not install the Shorewall firewall. Instead, it relies on the 
+VPC Public/Private architecture and AWS EC2 Security Groups to provide that
+functionality, so the entire Firewall section of the Flurdy docs can be
+ignored. As they say, "not essential for an EC2 image."
+
+### SASL
+
+The entire SASL (Authentication) section of the Flurdy docs can be ignored,
+as the current versions of Postfix and Dovecot support SASL via Dovecot.
+
+### Alternative Admin User shell
+
+When setting up on EC2, the Flurdy docs describe the creation of a
+[Simple Server] as the basis for all future servers.  Part of that
+description includes uploading your public SSH keys, creating a new
+user, and adding that user to certain groups. Finally, it optionally
+suggests removing the default user used by AWS to launch the
+instances. While this last part is good practice in general, it
+doesn't really work with CloudFormation, as you need the AWS system
+to continue to be able to access the server. I do provide the ability
+to add an additional admin user, and to add login files for that
+user (.profile .shrc). However, because I'm old and grumpy, I use
+ksh, not bash. That should probably be fine for most people, but
+if you're approximately equally old and grumpy and want bash (or
+something else), you're out of luck for the moment (though, adding
+the ability to support other shells is on the To Do list).
+
+### Linux distribution
+
+Flurdy uses Ubuntu. Jon Jerome uses Debian. These templates use Amazon
+Linux 2 (probably for [no good reason]).
+
+
+### GID and UID
+
+Flurdy sets the GID and UID for virtual to 5000 in both cases. The UID is
+configurable in these templates, and defaults to 5000 (in general, I default
+to the Flurdy defaults ... that's kind of the point). However, there's no
+good way to set the GID with CloudFormation, so it gets set automatically.
+
+### Dovecot SSL
+
+Jon Jerome sets it to "yes". I set it to "required". (It's optional for
+server-server SNMP communication, but why let it be optional for IMAP?)
+
+### Dovecot user query
+
+Jon Jerome uses prefetch to get all of the information in one go. Mostly
+this just works, but in the event you have Roundcube enabled, and a user
+in the database, but that user has not yet received any mail, Dovecot gets
+confused about the directory structure. To fix this (and prevent errors in
+Roundcube) we modify the password_query to prefix "maildir:" to the
+maildir path.
+
+### SSL Certificates
+
+#### SSL for Email: Let's Encrypt
+
+These templates default to getting "fake" SSL certificates for the email
+servers from [Let's Encrypt], using [acme.sh]. This is approximately equivalent
+to creating your own CA. The benefit is, once everything is working, you
+can switch the configuration option, and get real SSL certificates that
+will be accepted by people's IMAP clients. The downside is, it only works
+if the primary domain for the mail server has DNS hosted in [Route53]. There
+is an option to not install SSL certificates, and another to let you
+put existing certificates in an S3 bucket and install them from there, but
+neither of those options are tested (and probably don't work).
+
+SSL certificates are in /etc/pki/dovecot and there are only two in the default
+letsencrypt style, but the names are slightly different than Dovecot
+instructions specify.
+
+.chain.pem includes the cert, intermediate certs, and CA cert. We no longer
+use a separate setting for the CAcert.
+
+#### SSL for Web
+
+The SSL certificate for HTTPS are put on an Amazon Application Load
+Balancer (ALB). This certificate come from [AWS Certificate Manager], 
+and must be manually generated. Changing this to allow manual creation is
+on the To Do list, but for now, the process is manual. The reason is, if you generate new ones via a CloudFormation stack, template execution
+will pause in the middle, while you validate the new certificates (which
+can be done either by email or DNS).
+Further, if you're using [CloudFront], you **must** generate or import the
+certificate in the US East (N. Virginia) Region (us-east-1). The first problem
+is minor, but the second one is significant. If and when ClouFormation
+supports creation of certificates in other regions, I'll likely update the
+templates to support certificate creation. In the meantime, you must manually
+create a single certificate in your region of choice which covers all of the
+relevant hosts which will be proxied by the ALB (probably something like 
+www.example.com, phpmyadmin.example.com, and webmail.example.com).
+
+### Session Cache
+
+Flurdy has the session cache file locations commented out, but sets the
+cache timeout variable. I’m not sure what the intent here is, but according
+to current postfix documentation, the default values for those commented
+out file locations is “blank”. So, we set them. Also, as we’re using
+postfix > 2.3, we set the lmtp cache database location.
+
+### Amavis and SpamAssassin
+
+The amavisd-new config files are not broken out under a conf.d directory
+in the version that Amazon Linux 2 installs. Instead, they’re all in one
+file /etc/amavisd/amavisd.conf. Additionally amavisd-new installs
+SpamAssasin on its own, including setting up /etc/cron.d/sa-update.
+Additionally additionally, amavisd-new now calls the SpamAssassin perl
+library directly, so spams is no longer launched.
+
+### ClamAV
+
+For ClamAV, the only package installed in clamd, which pulls in the other
+requirements. We grab the virus databases directly, to speed up launch,
+but there’s still a problem with current ClamAV, that it takes longer
+than systemctl allows for a service to start, and so we have to add a
+delay.
+
+### Postgrey
+
+Connect postfix and postgrey via unix socket instead of TCP.
+
+### Roundcube
+
+I install Roundcube from the github source rather than the distribution
+because the distributed version is ancient.
+
+Also, you have the option to inable the Roundcube password plugin, which
+allows users to change their own passwords.
+
+### Extend - SPF Verification
+
+The package system for Amazon Linux uses slightly different packages. I
+install python3, and then use pip to install pypolicyd-spf, pyspf, and py3dns.
+The configuration is in /etc/python-policyd-spf.
+
+### Extend - DKIM
+
+I'm not actually sure this matters, but the configuration syntax for the
+version of OpenDKIM that gets installed by yum appears to have slightly
+different syntax. Instead of
+
+SOCKET="local:/var/spool/postfix/var/run/opendkim/opendkim.sock"
+
+it is
+
+Socket local:/var/spool/postfix/var/run/opendkim/opendkim.sock
+
 XXX Mail Stuff Here
 
 #### Optional: Encrypting Amazon EFS Data & Metadata at Rest
@@ -653,67 +863,7 @@ the following resources extremely useful:
 * [Certificate testing with openssl]
 * [Test spamassassin]
 
-# **Migrating an Existing Flurdy/Jeremy Server**
-
-* Make sure you've run through a new install of the above a few times, and
-everything works as expected.
-* Stop postfix and dovecot on your current mail server
-* Backup /var/spool on your existing mail server
-* Backup your existing mail database
-* Launch this template
-* Update DNS entries
-* Shut down your old server
-
-## Backup /var/spool
-
-If you're already running on AWS and /var/spool is a separate volume, the
-easiest thing to do is just create a snapshot of said volume and use it as
-an input to this configuration.
-
-If you're running on AWS, but /var/spool isn't it's own volume, the easiest
-thing to do is create a new EBS, attach it to your existing instance,
-copy /var/spool to the new volume, and then create a snapshot of that (and
-delete the EBS so you're not paying for extra storage you don't need).
-
-If you're not on AWS, you'll have to figure out some way to get the data
-from your existing server to the new server. Probably spin up one of these
-first, launch a bastion instance from your new autoscaling group, and then
-rsync over an ssh tunnel to the new server.
-
-## Backup your database
-
-Backup your existing database
-
-`mysqldump --add-drop-table -h mysql_hostserver -u mysql_username`
-    `-p mysql_databasename`
-
-Put that backup in an S3 bucket, and use it as input to this configuration
-template.
-
-## Launch this template
-
-Amazon best practice is to launch this as one entire nested stack. There
-may be reasons that you want to do that; however, in practice, I don't. I
-launch infrastructure as a nested stack, and then separately
-flurdy-mail-master as a nested stack on top of it. The reason for this is
-that I use the infrastructure layer as ... infrastructure. There are lots of
-other things I run on the same infrastructure (e.g., web servers, which are
-a separate nested stack). Use your own judgement.
-
-## Update DNS entries
-
-* Add the SPF, DMARC, and DKIM DNS entries.
-* Add a DNS entry for your new backup mail server at a lower priority than
-your main server, but a higher priority than your existing backup server (if
-you have one)
-* Confirm your new backup server is queuing mail
-* Add DNS entry for <phpmyadmin>.<example>.com (it should point to your new 
-load balancer).
-* Replace your old primary MX record to point to your new primary server
-* Add DNS entry for <webmail>.<example>.com (it should point to your new
-load balancer).
-
-[Amavis]: https://www.ijs.si/software/amavisd/
+[Amavis]: https://www.amavis.org
 [Amazon Certificate Manager]: http://docs.aws.amazon.com/acm/latest/userguide/acm-overview.html
 [Amazon EC2]: http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/concepts.html
 [Amazon Linux 2]: https://aws.amazon.com/amazon-linux-2/
@@ -727,6 +877,7 @@ load balancer).
 [AWS KMS Best Practices]:https://d0.awsstatic.com/whitepapers/aws-kms-best-practices.pdf
 [AWS VPC subnetting]:https://docs.aws.amazon.com/vpc/latest/userguide/working-with-vpcs.html
 [Bastion Hosts]:https://docs.aws.amazon.com/quickstart/latest/linux-bastion/architecture.html
+[Chris Richardson]: https://chrisrichardson.info
 [ClamAV]: https://www.clamav.net
 [Certificate testing with openssl]:https://support.plesk.com/hc/en-us/articles/213961665-How-to-verify-that-SSL-for-IMAP-POP3-SMTP-works-and-a-proper-SSL-certificate-is-in-use
 [crypt description]: https://akkadia.org/drepper/SHA-crypt.txt
@@ -736,10 +887,10 @@ load balancer).
 [dovecot password schemes]:https://doc.dovecot.org/configuration_manual/authentication/password_schemes/
 [dovecto sql authentication]:https://doc.dovecot.org/configuration_manual/authentication/sql/#authentication-sql
 [flurdy]: http://flurdy.com/docs/postfix/
+[flurdy edition]: https://flurdy.com/docs/postfix/index.html#editions
 [acme.sh]:https://github.com/Neilpang/acme.sh
 [Jon Jerome]: https://xec.net/dovecot-migration/
 [Key Management Service]:https://aws.amazon.com/kms/
-[launch-use1]: https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/new?stackName=FlurdyEmail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/mail-and-web/latest/aws-mirovoy-ref-arch-mail-master.yaml
 [launch-use2]: https://console.aws.amazon.com/cloudformation/home?region=us-east-2#/stacks/new?stackName=FlurdyEmail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/mail-and-web/latest/aws-mirovoy-ref-arch-mail-master.yaml
 [launch-usw2]: https://console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/new?stackName=FlurdyEmail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/mail-and-web/latest/aws-mirovoy-ref-arch-mail-master.yaml
 [launch-euw1]: https://console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/new?stackName=FlurdyEmail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/mail-and-web/latest/aws-mirovoy-ref-arch-mail-master.yaml
@@ -751,6 +902,7 @@ load balancer).
 [no good reason]:https://www.juliandunn.net/2018/01/05/whats-amazon-linux-might-use/
 [phpMyAdmin]:https://www.phpmyadmin.net
 [Postfix]: http://www.postfix.org
+[Postgrey]: https://postgrey.schweikert.ch
 [Roundcube]:https://roundcube.net
 [Route53]:https://aws.amazon.com/route53/
 [Simple Server]:http://flurdy.com/docs/ec2/ubuntu/index.html
