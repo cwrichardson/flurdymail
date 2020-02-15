@@ -11,39 +11,39 @@ This reference architecture provides a set of YAML templates for deploying
 primary and backup [Flurdy email servers][flurdy] (as extended by [Jon
 Jerome] for Dovecot support) on AWS using [AWS CloudFormation].
 
-- [Introduction](#-introduction)
-  - [Description](#-description)
-  - [Rationale](#-rationale)
-  - [TL;DR](#-tldr--launch-the-stack)
-  - [Overview](#-overview)
+- [Introduction](#introduction)
+  - [Description](#description)
+  - [Rationale](#rationale)
+  - [TL;DR](#tldr--launch-the-stack)
+  - [Overview](#overview)
 - [Usage]
-  - [Populate CloudFront Helpers](#-populate-cloudfront-helpers)
-  - [Create an AWS SSL Certificate](#-create-an-aws-ssl-certificate)
-  - [Run The Templates](#-run-the-templates)
-  - [Populate Your Database](#-populate-your-database)
-  - [Migration](#-migrating-an-existing-flurdyjeremy-server)
-- [Parameters](#-parameters)
-- [Variances from Flurdy](#-variances-from-flurdy)
-  - [Significant Variances](#-significant-variances)
-  - [Minor Variances](#-minor-variances)
-    - [Encrypted Passwords](#-encrypted-passwords)
-    - [Firewall](#-firewall)
-    - [SASL](#-sasl)
-    - [Alternative Admin User Shell](#-alternative-admin-user-shell)
-    - [Linux Distribution](#-linux-distribution)
-    - [UID and GID](#-gid-and-uid)
-    - [Dovecot SSL](#-dovecot-ssl)
-    - [Dovecot User Query](#-dovecot-user-query)
-    - [SSL Certificates](#-ssl-certificates)
-    - [Session Cache](#-session-cache)
-    - [Amavis and SpamAssassin](#-amavis-and-spamassasin)
-    - [ClamAV](#-clamav)
-    - [Postgrey](#-postgrey)
-    - [RoundCube](#-roundcube)
-    - [SPF Verification](#-extend--spf-verificaiton)
-    - [DKIM[(#-extent--dkim)
-- [To Do](#-to-do)
-- [Notes](#-notes)
+  - [Populate CloudFront Helpers](#populate-cloudfront-helpers)
+  - [Create an AWS SSL Certificate](#create-an-aws-ssl-certificate)
+  - [Run The Templates](#run-the-templates)
+  - [Populate Your Database](#populate-your-database)
+  - [Migration](#migrating-an-existing-flurdyjeremy-server)
+- [Parameters](#parameters)
+- [Variances from Flurdy](#variances-from-flurdy)
+  - [Significant Variances](#significant-variances)
+  - [Minor Variances](#minor-variances)
+    - [Encrypted Passwords](#encrypted-passwords)
+    - [Firewall](#firewall)
+    - [SASL](#sasl)
+    - [Alternative Admin User Shell](#alternative-admin-user-shell)
+    - [Linux Distribution](#linux-distribution)
+    - [UID and GID](#gid-and-uid)
+    - [Dovecot SSL](#dovecot-ssl)
+    - [Dovecot User Query](#dovecot-user-query)
+    - [SSL Certificates](#ssl-certificates)
+    - [Session Cache](#session-cache)
+    - [Amavis and SpamAssassin](#amavis-and-spamassasin)
+    - [ClamAV](#clamav)
+    - [Postgrey](#postgrey)
+    - [RoundCube](#roundcube)
+    - [SPF Verification](#extend--spf-verificaiton)
+    - [DKIM[(#extent--dkim)
+- [To Do](#to-do)
+- [Notes](#notes)
 
 # Introduction
 ## Description
@@ -259,7 +259,7 @@ services on this same infrastructure, you can include those as well
 ## Run the templates
 
 The simplest way to run this is to just [execute the master
-template](#-tldr--launch-thestack) from the AWS Region in which you
+template](#tldr--launch-thestack) from the AWS Region in which you
 want to deploy the environment. If you're here for the first time,
 this is probably what you should do, just to see it work. However,
 there are a few reasons you may not want to do this.
@@ -310,7 +310,7 @@ change your Desired and Min number of instances to 1.
 
 Once you have access to your database, you can follow the [Flurdy 
 data](https://flurdy.com/docs/postfix/index.html#data) instructions.
-However, see [Minor variances: encrypted passwords](#-encrypted-passwords)
+However, see [Minor variances: encrypted passwords](#encrypted-passwords)
 before you attempt to do so.
 
 ## **Migrating an Existing Flurdy/Jeremy Server**
