@@ -313,7 +313,20 @@ data](https://flurdy.com/docs/postfix/index.html#data) instructions.
 However, see [Minor variances: encrypted passwords](#encrypted-passwords)
 before you attempt to do so.
 
-## **Migrating an Existing Flurdy/Jeremy Server**
+## Update DNS entries
+
+* Add the SPF, DMARC, and DKIM DNS entries.
+* Add a DNS entry for your new backup mail server at a lower priority than
+your main server, but a higher priority than your existing backup server (if
+you have one)
+* Confirm your new backup server is queuing mail
+* Add DNS entry for `<phpmyadmin>.<example>.com` (it should point to your new 
+load balancer).
+* Replace your old primary MX record to point to your new primary server
+* Add DNS entry for `<webmail>.<example>.com` (it should point to your new
+load balancer).
+
+## Migrating an Existing Flurdy/Jeremy Server
 
 * Make sure you've run through a new install of the above a few times, and
 everything works as expected.
@@ -322,9 +335,10 @@ everything works as expected.
 * Backup your existing mail database
 * Launch this template
 * Update DNS entries
+* Make sure everything works
 * Shut down your old server
 
-## Backup /var/spool
+### Backup /var/spool
 
 If you're already running on AWS and /var/spool is a separate volume, the
 easiest thing to do is just create a snapshot of said volume and use it as
@@ -340,38 +354,15 @@ from your existing server to the new server. Probably spin up one of these
 first, launch a bastion instance from your new autoscaling group, and then
 rsync over an ssh tunnel to the new server.
 
-## Backup your database
+### Backup your database
 
 Backup your existing database
 
 `mysqldump --add-drop-table -h mysql_hostserver -u mysql_username`
     `-p mysql_databasename`
 
-Put that backup in an S3 bucket, and use it as input to this configuration
-template.
-
-## Launch this template
-
-Amazon best practice is to launch this as one entire nested stack. There
-may be reasons that you want to do that; however, in practice, I don't. I
-launch infrastructure as a nested stack, and then separately
-flurdy-mail-master as a nested stack on top of it. The reason for this is
-that I use the infrastructure layer as ... infrastructure. There are lots of
-other things I run on the same infrastructure (e.g., web servers, which are
-a separate nested stack). Use your own judgement.
-
-## Update DNS entries
-
-* Add the SPF, DMARC, and DKIM DNS entries.
-* Add a DNS entry for your new backup mail server at a lower priority than
-your main server, but a higher priority than your existing backup server (if
-you have one)
-* Confirm your new backup server is queuing mail
-* Add DNS entry for <phpmyadmin>.<example>.com (it should point to your new 
-load balancer).
-* Replace your old primary MX record to point to your new primary server
-* Add DNS entry for <webmail>.<example>.com (it should point to your new
-load balancer).
+Put that backup in your S3 bucket under `mirovoy-cf-assets/mail`,
+and use it as input to this configuration template.
 
 # Parameters
 
