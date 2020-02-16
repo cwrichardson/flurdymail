@@ -1319,7 +1319,7 @@ Resources:
                   - - https://
                     - !Sub ${MirovoyCFAssetsBucket}.s3-${AWS::Region}
                     - !Sub .amazonaws.com/${MYS3KeyPrefix}${MailDBBackup}
-                - AWS::NoValue
+                - !Ref AWS::NoValue
               mode: "000600"
               owner: "root"
               group: "root"
