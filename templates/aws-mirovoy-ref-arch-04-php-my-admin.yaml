@@ -240,7 +240,8 @@ Resources:
   phpMyAdminAlbTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: phpMyAdminTargets
+      Name: !Join ['', ['phpMyAdminTargets-',
+                        !Select [2, !Split ['-', !Ref 'AWS::StackName']]]]
       Port: 443
       Protocol: HTTPS
       TargetType: instance
@@ -504,7 +505,7 @@ Resources:
               test: "! yum installed php-mbstring"
             07_install_mysqli::
               command: yum install -y php-mysqli
-              #test: "! yum installed php-mbstring"
+              # test: "! yum installed php-mbstring"
             08_mkdir_phpmyadmin:
               command: mkdir /var/www/html/phpMyAdmin
               test: "[ ! -d /var/www/html/phpMyAdmin ]"
