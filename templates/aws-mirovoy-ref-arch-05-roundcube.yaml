@@ -941,7 +941,7 @@ Resources:
                 - !Join
                   - ' '
                   - - cat fakeleintermediatex1.pem >> fakelerootx1.pem &&
-                    - cp fakelerootx1.pem
+                    - cat fakelerootx1.pem >>
                     - /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt
                     - '&& chmod ugo-w'
                     - /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt
