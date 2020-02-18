@@ -37,7 +37,8 @@ Metadata:
           - MailInstanceType
           - MailAMIID
           - MailSecurityGroup
-          - StorageStackName
+          # - StorageStackName
+          - PrimaryStorageStackName
           - UseSwap
           - PrimarySubnet
       - Label:
@@ -45,6 +46,7 @@ Metadata:
         Parameters:
           - BackupServerName
           - BackupMailInstanceType
+          - BackupStorageStackName
           - BackupSubnet
       - Label:
           default: Create Admin User
@@ -228,7 +230,11 @@ Metadata:
         default: Timeout for policyd-spf
       SSLDebug:
         default: Enable acme.sh debugging
-      StorageStackName:
+      # StorageStackName:
+      #   default: Name for the stack that created the EBS volumes
+      PrimaryStorageStackName:
+        default: Name for the stack that created the EBS volumes
+      BackupStorageStackName:
         default: Name for the stack that created the EBS volumes
       UnknownLocalErrorCode:
         default: Temp or perm unknown local address error code
@@ -665,7 +671,7 @@ Parameters:
       don't get slowed down, but once things are working properly
       you should definitely come lower it
     Type: Number
-  StorageStackName:
+  PrimaryStorageStackName:
     AllowedPattern: ^([a-zA-Z0-9]+[a-zA-Z0-9\-]*)$
     ConstraintDescription: "A stack name can contain only alphanumeric
       characters (case-sensitive) and hyphens. It must start with an
@@ -673,6 +679,22 @@ Parameters:
     Description: The name of the stack that was used to create EBS volumes
     MaxLength: 128
     Type: String
+  BackupStorageStackName:
+    AllowedPattern: ^([a-zA-Z0-9]+[a-zA-Z0-9\-]*)$
+    ConstraintDescription: "A stack name can contain only alphanumeric
+      characters (case-sensitive) and hyphens. It must start with an
+      alphabetic character and can't be longer than 128 characters."
+    Description: The name of the stack that was used to create EBS volumes
+    MaxLength: 128
+    Type: String
+  # StorageStackName:
+    # AllowedPattern: ^([a-zA-Z0-9]+[a-zA-Z0-9\-]*)$
+    # ConstraintDescription: "A stack name can contain only alphanumeric
+      # characters (case-sensitive) and hyphens. It must start with an
+      # alphabetic character and can't be longer than 128 characters."
+    # Description: The name of the stack that was used to create EBS volumes
+    # MaxLength: 128
+    # Type: String
   UnknownLocalErrorCode:
     AllowedValues:
       - 450
@@ -881,16 +903,21 @@ Resources:
             - mount_swap
           insert_test_data:
             - add_test
-          deploy_baseserver:
+          prep_server:
             - mount_log
             - mount_spool
             - add_mysql
+          deploy_from_backup:
+            - restore_mysql
+            - config_mysql
+            - install_mailserver
+          deploy_fresh:
             - config_mysql
             - install_mailserver
           deploy_with_alt_admin:
             - add_admin
             -
-              ConfigSet: "deploy_baseserver"
+              ConfigSet: "prep_server"
           enable_dkim:
             - dkim_install
             - restart_postfix
@@ -1159,8 +1186,8 @@ Resources:
                 - - (
                   - Fn::ImportValue: !Join
                       - ':'
-                      - - !Ref StorageStackName
-                        - FormatMasterLog
+                      - - !Ref PrimaryStorageStackName
+                        - FormatLog
                   - "&& mkfs -t xfs /dev/xvdl) ||"
                   - 'echo "Skipping format of master log"'
               test: '[ "`lsblk -no FSTYPE /dev/xvdl`" != "xfs" ]'
@@ -1188,8 +1215,8 @@ Resources:
                 - - (
                   - Fn::ImportValue: !Join
                       - ':'
-                      - - !Ref StorageStackName
-                        - FormatMasterLog
+                      - - !Ref PrimaryStorageStackName
+                        - FormatLog
                   - "&& rsync -az /tmp/log /var/ ) ||"
                   - 'echo "Not syncing logs. Some log info will be in /tmp/log"'
               test: "test -d /var/log"
@@ -1231,8 +1258,8 @@ Resources:
                 - - (
                   - Fn::ImportValue: !Join
                       - ':'
-                      - - !Ref StorageStackName
-                        - FormatMasterSpool
+                      - - !Ref PrimaryStorageStackName
+                        - FormatSpool
                   - "&& mkfs -t xfs /dev/xvds) ||"
                   - 'echo "Skipping format of master spool"'
               test: !Join
@@ -1263,8 +1290,8 @@ Resources:
                 - - (
                   - Fn::ImportValue: !Join
                       - ':'
-                      - - !Ref StorageStackName
-                        - FormatMasterSpool
+                      - - !Ref PrimaryStorageStackName
+                        - FormatSpool
                   - "&& rsync -az /tmp/spool /var/) ||"
                   - 'echo "Not restoring /tmp/spool"'
               test: "test -d /var/spool"
@@ -1291,6 +1318,59 @@ Resources:
               command: "yum -y install mysql-community-client"
               test: "yum repolist enabled | grep mysql"
 
+        restore_mysql:
+          files:
+            /tmp/backup.mysql:
+              source: !Join
+                - ''
+                - - https://
+                  - !Sub ${MirovoyCFAssetsBucket}.s3-${AWS::Region}
+                  - !Sub .amazonaws.com/${MYS3KeyPrefix}${MailDBBackup}
+              mode: "000600"
+              owner: "root"
+              group: "root"
+              authentication: S3AccessCreds
+          commands:
+            01_restore_mail_db:
+              command: !Join
+                # The aws CLI query to get the secrets from the Secrets
+                # Manager are a little gross here. OK, a lot gross — because
+                # the actual SecretString returns a String, not an object
+                # that is further queryiable with JMESPath. For example
+                # it might output
+                #
+                # {"user":"secretuser", "password":"secretpass"}
+                #
+                # the above could be further queried by jq ... but jq isn't
+                # installed be default, whereas grep is, so we do this the
+                # old fashioned way. grep.
+                - ''
+                - - "mysql -u "
+                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
+                  - "get-secret-value --secret-id "
+                  - !Sub "${DatabaseStackName}-dbcreds "
+                  - "--query SecretString --output text | grep -Po "
+                  - "'user\":\"\\K.*?(?=\")'` "
+                  - "--password="
+                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
+                  - "get-secret-value --secret-id "
+                  - !Sub "${DatabaseStackName}-dbcreds "
+                  - "--query SecretString --output text | grep -Po "
+                  - "'password\":\"\\K.*?(?=\")'` -h "
+                  - Fn::ImportValue: !Sub ${DatabaseStackName}-MasterDBEndpoint
+                  - !Sub " ${MailDBName} "
+                  - " </tmp/backup.mysql"
+              test: !Join
+                - ''
+                - - "[[ ! $(mysql -u "
+                  - !Ref MailDBUser
+                  - " --password='"
+                  - !Ref MailDBPassword
+                  - "' -h "
+                  - Fn::ImportValue: !Sub
+                      '${DatabaseStackName}-MasterDBEndpoint'
+                  - " >/dev/null 2>&1 </dev/null) && -f /tmp/backup.mysql ]]"
+
         config_mysql:
           #
           # There doesn't appear to currently be a way to create group with
@@ -1311,19 +1391,6 @@ Resources:
             virtual:
               uid: !Ref VirtualUID
           files:
-            /tmp/backup.mysql:
-              source: !If
-                - RestoreFromBackup
-                - !Join
-                  - ''
-                  - - https://
-                    - !Sub ${MirovoyCFAssetsBucket}.s3-${AWS::Region}
-                    - !Sub .amazonaws.com/${MYS3KeyPrefix}${MailDBBackup}
-                - !Ref AWS::NoValue
-              mode: "000600"
-              owner: "root"
-              group: "root"
-              authentication: S3AccessCreds
             /tmp/setup.mysql:
               content: !Sub |
                 CREATE DATABASE IF NOT EXISTS ${MailDBName};
@@ -1389,7 +1456,7 @@ Resources:
               owner: "root"
               group: "root"
           commands:
-            00_create_mail_db:
+            01_create_mail_db:
               command: !Join
                 # The aws CLI query to get the secrets from the Secrets
                 # Manager are a little gross here. OK, a lot gross — because
@@ -1427,45 +1494,6 @@ Resources:
                   - Fn::ImportValue: !Sub
                       '${DatabaseStackName}-MasterDBEndpoint'
                   - " >/dev/null 2>&1 </dev/null)"
-            01_restore_mail_db:
-              command: !Join
-                # The aws CLI query to get the secrets from the Secrets
-                # Manager are a little gross here. OK, a lot gross — because
-                # the actual SecretString returns a String, not an object
-                # that is further queryiable with JMESPath. For example
-                # it might output
-                #
-                # {"user":"secretuser", "password":"secretpass"}
-                #
-                # the above could be further queried by jq ... but jq isn't
-                # installed be default, whereas grep is, so we do this the
-                # old fashioned way. grep.
-                - ''
-                - - "mysql -u "
-                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
-                  - "get-secret-value --secret-id "
-                  - !Sub "${DatabaseStackName}-dbcreds "
-                  - "--query SecretString --output text | grep -Po "
-                  - "'user\":\"\\K.*?(?=\")'` "
-                  - "--password="
-                  - !Sub "`aws --region ${AWS::Region} secretsmanager "
-                  - "get-secret-value --secret-id "
-                  - !Sub "${DatabaseStackName}-dbcreds "
-                  - "--query SecretString --output text | grep -Po "
-                  - "'password\":\"\\K.*?(?=\")'` -h "
-                  - Fn::ImportValue: !Sub ${DatabaseStackName}-MasterDBEndpoint
-                  - !Sub " ${MailDBName} "
-                  - " </tmp/backup.mysql"
-              test: !Join
-                - ''
-                - - "[[ ! $(mysql -u "
-                  - !Ref MailDBUser
-                  - " --password='"
-                  - !Ref MailDBPassword
-                  - "' -h "
-                  - Fn::ImportValue: !Sub
-                      '${DatabaseStackName}-MasterDBEndpoint'
-                  - " >/dev/null 2>&1 </dev/null) && -f /tmp/backup.mysql ]]"
             02_vgid_tables:
               command: sed -i "s/VIRTUALGID/`id -g virtual`/" /tmp/tables.mysql
               cwd: /tmp
@@ -1607,7 +1635,8 @@ Resources:
                   - ' '
                   - !Ref AWS::StackName
                   - ' --resource MailServerInstance --configsets '
-                  - !If [NoAdminUser, deploy_baseserver, deploy_with_alt_admin]
+                  - !If [NoAdminUser, prep_server, deploy_with_alt_admin]
+                  - ",deploy_fresh"
                   - !If [EnableSpf, ",enable_spf", ""]
                   - !If [EnableDkim, ",enable_dkim", ""]
                   - '  --region '
@@ -1990,8 +2019,8 @@ Resources:
                 - - (
                   - Fn::ImportValue: !Join
                       - ':'
-                      - - !Ref StorageStackName
-                        - FormatMasterSpool
+                      - - !Ref PrimaryStorageStackName
+                        - FormatSpool
                   - "&& mkdir /var/spool/mail/virtual ) ||"
                   - 'echo "Skipping creating /var/spoolmail/virtual"'
               test: "test ! -e /var/spool/mail/virtual"
@@ -2792,8 +2821,13 @@ Resources:
               --resource MailServerInstance --region ${AWS::Region}
             /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} \
               --resource MailServerInstance --region ${AWS::Region}
-          - {DeployType: !If [NoAdminUser, deploy_baseserver,
-                              deploy_with_alt_admin],
+          - {DeployType: !If [NoAdminUser,
+                              !If [RestoreFromBackup,
+                                   "prep_server,deploy_from_backup",
+                                   "prep_server,deploy_fresh"],
+                              !If [RestoreFromBackup,
+                                   "deploy_with_alt_admin,deploy_from_backup",
+                                   "deploy_with_alt_admin,deploy_fresh"]],
              WantSwap: !If [SwapOn, "have_swap,", ""],
              InsertData: !If [UseTestData, ",insert_test_data", ""],
              Components: !If
@@ -2825,7 +2859,7 @@ Resources:
         configSets:
           have_swap:
             - mount_swap
-          deploy_baseserver:
+          prep_server:
             - mount_log
             - mount_spool
             - add_mysql
@@ -2834,7 +2868,7 @@ Resources:
           deploy_with_alt_admin:
             - add_admin
             -
-              ConfigSet: "deploy_baseserver"
+              ConfigSet: "prep_server"
           enable_spf:
             - spf_verify
             - restart_postfix
@@ -3020,8 +3054,8 @@ Resources:
                 - - (
                   - Fn::ImportValue: !Join
                       - ':'
-                      - - !Ref StorageStackName
-                        - FormatBackupLog
+                      - - !Ref BackupStorageStackName
+                        - FormatLog
                   - "&& mkfs -t xfs /dev/xvdl) ||"
                   - 'echo "Skipping format of backup mail log"'
               test: '[ "`lsblk -no FSTYPE /dev/xvdl`" != "xfs" ]'
@@ -3049,8 +3083,8 @@ Resources:
                 - - (
                   - Fn::ImportValue: !Join
                       - ':'
-                      - - !Ref StorageStackName
-                        - FormatBackupLog
+                      - - !Ref BackupStorageStackName
+                        - FormatLog
                   - "&& rsync -az /tmp/log /var/) ||"
                   - 'echo "Not syncing logs. Some log info will be in /tmp/log"'
               test: "test -d /var/log"
@@ -3092,8 +3126,8 @@ Resources:
                 - - (
                   - Fn::ImportValue: !Join
                       - ':'
-                      - - !Ref StorageStackName
-                        - FormatBackupSpool
+                      - - !Ref BackupStorageStackName
+                        - FormatSpool
                   - "&& mkfs -t xfs /dev/xvds) ||"
                   - 'echo "Skipping format of backup spool"'
               test: !Join
@@ -3124,8 +3158,8 @@ Resources:
                 - - (
                   - Fn::ImportValue: !Join
                       - ':'
-                      - - !Ref StorageStackName
-                        - FormatBackupSpool
+                      - - !Ref BackupStorageStackName
+                        - FormatSpool
                   - "&& rsync -az /tmp/spool /var/) ||"
                   - 'echo "Not restoring /tmp/spool"'
               test: "test -d /var/spool"
@@ -3309,7 +3343,7 @@ Resources:
                   - ' '
                   - !Ref AWS::StackName
                   - ' --resource MailServerInstance --configsets '
-                  - !If [NoAdminUser, deploy_baseserver, deploy_with_alt_admin]
+                  - !If [NoAdminUser, prep_server, deploy_with_alt_admin]
                   - !If [EnableSpf, ",enable_spf", ""]
                   - '  --region '
                   - !Ref AWS::Region
@@ -3624,8 +3658,8 @@ Resources:
                 - - (
                   - Fn::ImportValue: !Join
                       - ':'
-                      - - !Ref StorageStackName
-                        - FormatBackupSpool
+                      - - !Ref BackupStorageStackName
+                        - FormatSpool
                   - "&& mkdir /var/spool/mail/virtual ) ||"
                   - 'echo "Skipping creating /var/spoolmail/virtual"'
               test: "test ! -e /var/spool/mail/virtual"
@@ -3769,7 +3803,7 @@ Resources:
               --resource BackupMailServerInstance --region ${AWS::Region}
             /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} \
               --resource BackupMailServerInstance --region ${AWS::Region}
-          - {DeployType: !If [NoAdminUser, deploy_baseserver,
+          - {DeployType: !If [NoAdminUser, prep_server,
                               deploy_with_alt_admin],
              WantSwap: !If [SwapOn, "have_swap,", ""],
              Components: !If [EnableTLSonBackup, "config_01", "config_02"],
@@ -3786,7 +3820,7 @@ Resources:
       Device: /dev/xvds
       InstanceId: !Ref MailServerInstance
       VolumeId:
-        Fn::ImportValue: !Sub '${StorageStackName}:MasterSpoolEBS'
+        Fn::ImportValue: !Sub '${PrimaryStorageStackName}:SpoolEBS'
 
   MasterSwapMountPoint:
     Type: AWS::EC2::VolumeAttachment
@@ -3795,7 +3829,7 @@ Resources:
       Device: /dev/xvdm
       InstanceId: !Ref MailServerInstance
       VolumeId:
-        Fn::ImportValue: !Sub '${StorageStackName}:MasterSwapEBS'
+        Fn::ImportValue: !Sub '${PrimaryStorageStackName}:SwapEBS'
 
   MasterLogMountPoint:
     Type: AWS::EC2::VolumeAttachment
@@ -3803,7 +3837,7 @@ Resources:
       Device: /dev/xvdl
       InstanceId: !Ref MailServerInstance
       VolumeId:
-        Fn::ImportValue: !Sub '${StorageStackName}:MasterLogEBS'
+        Fn::ImportValue: !Sub '${PrimaryStorageStackName}:LogEBS'
 
   BackupSpoolMountPoint:
     Type: AWS::EC2::VolumeAttachment
@@ -3811,7 +3845,7 @@ Resources:
       Device: /dev/xvds
       InstanceId: !Ref BackupMailServerInstance
       VolumeId:
-        Fn::ImportValue: !Sub '${StorageStackName}:BackupSpoolEBS'
+        Fn::ImportValue: !Sub '${BackupStorageStackName}:SpoolEBS'
 
   BackupSwapMountPoint:
     Type: AWS::EC2::VolumeAttachment
@@ -3820,7 +3854,7 @@ Resources:
       Device: /dev/xvdm
       InstanceId: !Ref BackupMailServerInstance
       VolumeId:
-        Fn::ImportValue: !Sub '${StorageStackName}:BackupSwapEBS'
+        Fn::ImportValue: !Sub '${BackupStorageStackName}:SwapEBS'
 
   BackupLogMountPoint:
     Type: AWS::EC2::VolumeAttachment
@@ -3828,7 +3862,7 @@ Resources:
       Device: /dev/xvdl
       InstanceId: !Ref BackupMailServerInstance
       VolumeId:
-        Fn::ImportValue: !Sub '${StorageStackName}:BackupLogEBS'
+        Fn::ImportValue: !Sub '${BackupStorageStackName}:LogEBS'
 
 Outputs:
   PrimaryMailServerPrivateDNS:
