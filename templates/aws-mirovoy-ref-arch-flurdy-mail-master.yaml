@@ -1,0 +1,976 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: 'Mirovoy Reference Architecture - Flurdy Mail -
+    This is the top level nested stack to deploy a Flurdy-style email
+    server on top of the Mirovoy Reference Architecture infrastructure stack.
+    It will deploy mail storage for spool and log as well as optionally swap,
+    a primary and backup mail server, and a webmail autoscaling group.'
+
+Metadata:
+  Authors:
+    Description: Chris Richardson (cwr@mirovoysales.com)
+
+  License:
+    Description: 'Copyright 2019-2020 Mirovoy Sales, s.r.o. and its affiliates.
+      All Rights Reserved.
+      SPDX-License-Identifier: MIT-0'
+
+  History:
+    Description: This work is based off of the aws-refarch-wordpress
+      templates originally authored by Darryl Osborne (darrylo@amazon.com)
+
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: Mandatory Parameters
+        Parameters:
+          - VpcStackName
+          - DeploymentType
+          - AvailabilityZones
+          - InstanceType
+          - AMIID
+      -
+        Label:
+          default: Recommended Parameters
+        Parameters:
+          - AdminUser
+          - AdminPubKey
+      -
+        Label:
+          default: Mail Storage Parameters
+        Parameters:
+          - SpoolSize
+          - LogSize
+          - SwapSize
+          - Cmk
+          - EbsDelPolicy
+          - MasterSpoolSnapshot
+          - MasterLogSnapshot
+          - BackupSpoolSnapshot
+          - BackupLogSnapshot
+      -
+        Label:
+          default: MX EC2 Instance Parameters
+        Parameters:
+          - ServerNames
+          - VirtualUID
+          - EC2KeyName
+          - MailSecurityGroup
+          - InsertTestData
+          - XandrosPass
+          - VivitaPass
+          - ExternalTestEmail
+      -
+        Label:
+          default: Database Parameters
+        Parameters:
+          - DatabaseStackName
+          - MailDBName
+          - MailDBUser
+          - MailDBPassword
+          - MailDBBackup
+          - RoundcubeDBName
+          - RoundcubeDBUser
+          - RoundcubeDBPass
+      -
+        Label:
+          default: Postfix Primary Parameters
+        Parameters:
+          - Origin
+          - Banner
+          - UnknownLocalErrorCode
+          - RelayHost
+          - RootMailRecipient
+          - InetProtocols
+          - OpenDkimDomains
+      -
+        Label:
+          default: SSL Parameters
+        Parameters:
+          - CertSource
+          - AccountEmail
+          - DNSZone
+          - DNSSleep
+          - CertFileDir
+      -
+        Label:
+          default: Amavisd, SpamAssassin, ClamAV
+        Parameters:
+          - SAFinalDest
+          - SetMyHost
+      -
+        Label:
+          default: Roundcube
+        Parameters:
+          - AllowPasswdChange
+          - AlternativeIAMRole
+          - AlternativeInitializationScript
+          - EnvironmentVariables
+          - Hash
+          - PublicAlbListenerArn
+          - RoundcubeSecurityGroup
+          - Skin
+      -
+        Label:
+          default: AWS S3 Configuration
+        Parameters:
+          - MirovoyCFAssetsBucket
+          - MailS3KeyPrefix
+          - RoundcubeS3KeyPrefix
+          - SkelFileDir
+
+    ParameterLabels:
+      AccountEmail:
+        default: Email for letsencrypt
+      AdminUser:
+        default: Alternative superuser account to create
+      AdminPubKey:
+        default: SSH public key for the alternative superuser
+      AllowPasswdChange:
+        default: Enable passowrd plugin
+      AlternativeIAMRole:
+        default: Alternative IAM Role
+      AlternativeInitializationScript:
+        default: Alternative Initialization Script
+      AMIID:
+        default: AMI ID for Servers
+      AvailabilityZones:
+        default: Availability Zones
+      BackupLogSnapshot:
+        default: MX Backup /var/log Snapshot ID
+      BackupSpoolSnapshot:
+        default: MX Backup /var/spool Snapshot ID
+      Banner:
+        default: SMTPD banner message
+      CertFileDir:
+        default: S3 Directory for SSL certificate files
+      CertSource:
+        default: Source for SSL certificate(s)
+      Cmk:
+        default: KMS Key ARN
+      DatabaseStackName:
+        default: Name for the stack that created the RDS instances
+      DeploymentType:
+        default: Deployment type
+      DNSSleep:
+        default: Time to wait for DNS propogation for  SSL cert verification
+      DNSZone:
+        default: DNS Zone for SSL cert verification
+      EbsDelPolicy:
+        default: What to do with EBS volumes on stack deletion
+      EC2KeyName:
+        default: Existing Key Pair
+      EnvironmentVariables:
+        default: Environment Variables
+      ExternalTestEmail:
+        default: External email to test mail forwarding
+      Hash:
+        default: Password hashing algorithm
+      InetProtocols:
+        default: Which IP version to support
+      InsertTestData:
+        default: Insert test users and domains in database
+      InstanceType:
+        default: Instance Type
+      LogSize:
+        default: Size for /var/log
+      MailDBBackup:
+        default: Mail Database Backup
+      MailDBName:
+        default: Mail Database Name
+      MailDBPassword:
+        default: Mail Database Password
+      MailDBUser:
+        default: Mail Database Username
+      MailSecurityGroup:
+        default: Mail Security Group
+      MasterLogSnapshot:
+        default: MX Master /var/log Snapshot ID
+      MasterSpoolSnapshot:
+        default: MX Master /var/spool Snapshot ID
+      MirovoyCFAssetsBucket:
+        default: Mirovvoy CloudFront Assets S3 bucket name
+      MailS3KeyPrefix:
+        default: Mirovoy CloudFront Assets Mail S3 bucket key prefix
+      OpenDkimDomains:
+        default: Open DKIM Domains
+      Origin:
+        default: My origin
+      PublicAlbListenerArn:
+        default: Public Alb Listener Arn
+      RelayHost:
+        default: Send outbound mail via
+      RootMailRecipient:
+        default: Who receives local mail for root
+      RoundcubeDBName:
+        default: Roundcube Database Name
+      RoundcubeDBPass:
+        default: Roundcube Database Password
+      RoundcubeDBUser:
+        default: Roundcube Database Username
+      RoundcubeS3KeyPrefix:
+        default: Mirovoy CloudFront Assets Roundcube S3 bucket key prefix
+      RoundcubeSecurityGroup:
+        default: Roundcube Security Group
+      SAFinalDest:
+        default: SPAM Final Destination
+      ServerNames:
+        default: The DNS names of the servers
+      SetMyHost:
+        default: Set myhost and mydomain
+      SkelFileDir:
+        default: S3 Directory for /etc/skel files
+      Skin:
+        default: Roundcube Skin
+      SpoolSize:
+        default: Size for /var/spool
+      SwapSize:
+        default: Size for swap
+      UnknownLocalErrorCode:
+        default: Temp or perm unknown local address error code
+      VirtualUID:
+        default: UID for the virtual user
+      VivitaPass:
+        default: Email password for test-user vivita@example.com
+      VpcStackName:
+        default: VPC Stack Name
+      XandrosPass:
+        default: Email password for test-user xandros@example.com
+
+Parameters:
+  AccountEmail:
+    AllowedPattern: "^.+@.+\\..+|^$"
+    ConstraintDescription: "Must be a valid email address"
+    Default: ''
+    Description: 'The email address for submitting to LetsEncrypt. Generally
+      set at account level rather than domain.'
+    Type: String
+  AdminUser:
+    AllowedPattern: "^[a-z][-a-z0-9]*$|^$"
+    ConstraintDescription: "Must be a valid username for the OS to be used.
+      For sanity's sake, confining this to starting with a lower-case letter,
+      followed by an arbitrary number of lower-case letters, numbers, and the
+      dash character ('-')."
+    Description: 'An alternate account to be created on bastion instances with
+      superuser permissions.'
+    Type: String
+  AdminPubKey:
+    Description: 'The public key text to be installed in the authorized_hosts
+      file for the admin user. Will also be installed as an accepted key for
+      the default admin user (ec2-user).'
+    Type: String
+  AllowPasswdChange:
+    AllowedValues:
+      - true
+      - false
+    Default: true
+    Description: Enable the Roundcube password pluging to allow users to
+      change their password themselves
+    Type: String
+  AlternativeIAMRole:
+    Description: 'Specify an existing IAM Role name to attach to the server.
+      If left blank, a new role will be created.'
+    Default: ''
+    Type: String
+  AlternativeInitializationScript:
+    AllowedPattern: "^http.*|^$"
+    ConstraintDescription: 'URL must begin with "http".'
+    Description: 'Specify an alternative initialization script to run during
+      setup.'
+    Default: ""
+    Type: String
+  AMIID:
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+    Description: AMI ID to use for the servers
+    Type: String
+    # Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+  AvailabilityZones:
+    Description: 'Pick two availability zones from your region in which to
+      deploy the mail stack. Logical order is preserverd (so, the first
+      selected is where the primary mail server will go).'
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+  BackupLogSnapshot:
+    Description: The snapshot name from which to restore /var/log for the
+      backup mail server.
+    Type: String
+  BackupSpoolSnapshot:
+    Description: The snapshot name from which to restore /var/spool for the
+      backup mail server
+    Type: String
+  Banner:
+    Default: "$myhostname ESMTP $mail_name"
+    Description: What to display when someone connects for SMTP.
+      It should be enough to be useful, but not give away unnecessary
+      information to potential hackers.
+    Type: String
+  CertFileDir:
+    Default: ""
+    Description: "Path under S3 prefix from which to grab SSL certs.
+      Should end in a slash."
+    Type: String
+  CertSource:
+    AllowedValues:
+      - generate test
+      - generate real
+      - S3
+      - none
+    Default: generate test
+    Description: Where to get the SSL certificates. By default, certificates
+      will be obtained from the LetsEncrypt staging server (fake certs,
+      untrusted in the wild). Set to "generate real" to generate real
+      LetsEncrypt certs. Set to "S3" to download certificates from the
+      certificate file directory specified under you S3 bucket/prefix.
+      Set to "none" to manually install your certificates later.
+    Type: String
+  Cmk:
+    Description: 'The Amazon Resource Name (ARN) of an existing AWS KMS
+      Customer Master Key (CMK) to encrypt EBS volumes.'
+    Type: String
+  DatabaseStackName:
+    AllowedPattern: ^([a-zA-Z0-9]+[a-zA-Z0-9\-]*)$
+    ConstraintDescription: "A stack name can contain only alphanumeric
+      characters (case-sensitive) and hyphens. It must start with an
+      alphabetic character and can't be longer than 128 characters."
+    Description: The name of the stack that was used to create the RDS instances
+    MaxLength: 128
+    Type: String
+  DeploymentType:
+    AllowedValues:
+      - "Primary only"
+      - "Primary and webmail"
+      - "Primary and backup"
+      - "Primary, backup, webmail"
+    Default: "Primary, backup, webmail"
+    Description: Which email services to deploy.
+    Type: String
+  DNSSleep:
+    Default: 180
+    Description: 'Configure the wait time to make sure that DNS route
+      properly propagate. 180 seconds seems to work in most cases, but
+      YMMV. If you''re running into failures for issueing the cert, turn
+      on acme debugging, below, and if the problem is with verification of the
+      DNS TXT entry, try upping this.'
+    Type: Number
+  DNSZone:
+    Description: 'The Route53 Hosted Zone that includes the mail server. This
+      will be used for automatic authorization during the creation process for
+      the LetsEncrypt SSL certificate, so it should match the domain of the
+      primary mail server. For example, if you put "mx1.mail.example.com" as
+      the name of the primary server, then this should be the Hosted Zone ID
+      for the "mail.example.com" zone.'
+    Type: List<AWS::Route53::HostedZone::Id>
+  EbsDelPolicy:
+    AllowedValues:
+      - Delete
+      - Retain
+      - Snapshot
+    Default: Snapshot
+    Description: What to do with the spool volumes when the stack is deleted.
+    Type: String
+  EC2KeyName:
+    AllowedPattern: ^([a-zA-Z0-9 @.`~!#$%^&*()_+,\\-])*$
+    ConstraintDescription: 'Must be letters (upper or lower), numbers, and
+      special characters.'
+    Description: 'Name of an EC2 KeyPair. Your mail instances will launch with
+      this KeyPair.'
+    Type: AWS::EC2::KeyPair::KeyName
+  EnvironmentVariables:
+    Description: 'Specify a comma separated list of environment variables for
+      use in bootstrapping by the alternative initialization script. Variables
+      must be in the format KEY=VALUE. VALUE cannot contain commas.'
+    Default: ''
+    Type: String
+  ExternalTestEmail:
+    AllowedPattern: "^.+@.+\\..+|^$"
+    Default: ''
+    Description: If "insert test data" is enabled, mail for test user
+      karl@example.com will be set to forward to the email address you input
+      here.
+    Type: String
+  Hash:
+    AllowedValues:
+      - sha256-crypt
+      - sha512-crypt
+    Default: sha512-crypt
+    Description: Hashing algorithm used when users change their password. If
+      you're moving from an existing Flurdy installation, current passwords
+      will be SHA256-CRYPT. Leaving this at SHA512-CRYPT will migrate users
+      to the stronger encryption as they update their passwords.
+    Type: String
+  InetProtocols:
+    AllowedValues:
+      - ipv4
+      - ipv6
+      - all
+    Default: ipv4
+    Description: Support for IPv4 or IPv6. Postfix default config has "all",
+      but Flurdy sets it to IPv4, to avoid flooding logswith IPv6 errors. We
+      haven''t tested anything other than "ipv4".
+    Type: String
+  InsertTestData:
+    AllowedValues:
+      - true
+      - false
+    Default: false
+    Description: "Add test users and domains to database. This is useful for
+      testing. The model is similar to the samle data provided at flurdy.
+      Three users are created: xandros@example.com, vivita@example,com, and
+      karl@example.com. example.com and example.net are both created as
+      domains, and all mail for example.net is forwarded to
+      xandros@example.com. All mail for karl@example.com is forwarded to an
+      external email you specify."
+    Type: String
+  InstanceType:
+    AllowedValues:
+      - t2.nano
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+    ConstraintDescription: Must be a valid Amazon EC2 instance type.
+    Default: t2.micro
+    Description: The Amazon EC2 instance type for your mail and
+      rouncube instances.
+    Type: String
+  LogSize:
+    ConstraintDescription: Must be an integer.
+    Default: 2
+    Description: Size (in GB) for device to mount on /var/log
+    MaxValue: 16384
+    MinValue: 1
+    Type: Number
+  MailDBBackup:
+    Default: ""
+    Description: A path/to/a/file under your S3 prefix, defined below. It
+      should not start with a slash, and should include the entire filename.
+      The file should be the output of mysqldump, and will be fed into mysql.
+    Type: String
+  MailDBName:
+    AllowedPattern: ^([a-zA-Z0-9]*)$
+    ConstraintDescription: "Must contain only alphanumeric characters."
+    Default: maildb
+    Description: The MySQL mail database name.
+    Type: String
+  MailDBPassword:
+    AllowedPattern: ^([a-z0-9A-Z`~!#$%^&*()_+,\\-])*$
+    ConstraintDescription: "Must be between 8 and 41 characters, including
+      letters (upper or lower), numbers, and these special characters
+      '_'`~!#$%^&*()_+,-"
+    Description: The MySQL password for the mail-database user.
+    MaxLength: 41
+    MinLength: 8
+    NoEcho: true
+    Type: String
+  MailDBUser:
+    AllowedPattern: ^([a-zA-Z0-9]*)$
+    Default: mailadmin
+    Description: The MySQL username to have access to the mail database.
+    ConstraintDescription: 'Must contain only alphanumeric characters and be at
+      least 8 characters.'
+    MaxLength: 16
+    MinLength: 8
+    Type: String
+  MailS3KeyPrefix:
+    AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
+    ConstraintDescription: 'Mirovoy CloudFront Assets S3 bucket  key prefix
+      can include numbers, lowercase letters, uppercase letters, hyphens (-),
+      and forward slash (/). The prefix should end with a forward slash (/).'
+    Default: "mail/"
+    Description: 'S3 key prefix for the Mirovoy CloudFormation assets. This
+      should be the top-level directory path inside the bucket, leading to the
+      assets for this template (e.g., scripts directory, etc... are located)'
+    Type: String
+  MailSecurityGroup:
+    Description: Select the mail security group.
+    Type: AWS::EC2::SecurityGroup::Id
+  MasterLogSnapshot:
+    Description: The snapshot ID from which to restore /var/log for the
+      master mail server
+    Type: String
+  MasterSpoolSnapshot:
+    Description: The snapshot ID from which to restore /var/spool for the
+      master mail server
+    Type: String
+  MirovoyCFAssetsBucket:
+    AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
+    ConstraintDescription: 'Mirovoy CloudFront Assets Bucket name can include
+      numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot
+      start or end with a hyphen (-).'
+    Default: "mirovoy-cf-assets"
+    Description: 'S3 bucket name for the Mirovoy CloudFormation assets.'
+    Type: String
+  OpenDkimDomains:
+    Default: ""
+    Description: "Domain(s) whose email should be signed by opendkim. A comma
+      separated list without spaces (e.g., example,com,example.co.uk)"
+    Type: String
+  Origin:
+    AllowedValues:
+      - domain
+      - host
+    Default: domain
+    Description: myorigin For unix users on this machine posting
+      mail, what to append to the username? The full hostname or
+      the domain name?  Probably the domain name, but keep in mind
+      that this will be weird for root@
+    Type: String
+  ServerNames:
+    Default: 'mx1.example.com,mx2.example.com,webmail.example.com'
+    Description: 'A comma separated list of fully-qualified domain names:
+      <primary mail server>,<backup mail server>,<webmail>.
+      All three values must be provided.'
+    Type: CommaDelimitedList
+  PublicAlbListenerArn:
+    Description: "The public application load balancer listener's arn."
+    Type: String
+  RelayHost:
+    Default: ''
+    Description: "Leave blank if this mail server sends all outbound mail. If
+      you need to relay, e.g., through your ISP's server, enter that here."
+    Type: String
+  RootMailRecipient:
+    Description: The recipient for local root mail. It can be a
+      user on this machine (e.g., the user added as AltAdmin above),
+      in which case you'll need to log into the machine locally and
+      get check your mail periodically. Or, it can be a real email
+      address; or better, a real email distribution list (e.g.,
+      sysadmins@example.com) that goes to people who will read such
+      messages.
+    Type: String
+  RoundcubeDBName:
+    AllowedPattern: ^([a-zA-Z0-9]*)$
+    Default: roundcube
+    Description: The MySQL Roundcube database name.
+    Type: String
+  RoundcubeDBPass:
+    AllowedPattern: ^([a-z0-9A-Z`~!#$%^&*()_+,\\-])*$
+    ConstraintDescription: "Must be between 8 and 41 characters, including
+      letters (upper or lower), numbers, and these special characters
+      '_'`~!#$%^&*()_+,-"
+    Description: The MySQL password for the roundcube-database user.
+    MaxLength: 41
+    MinLength: 8
+    NoEcho: true
+    Type: String
+  RoundcubeDBUser:
+    AllowedPattern: ^([a-zA-Z0-9]*)$
+    Default: webmail
+    Description: The MySQL username to have access to the roundcube database.
+    ConstraintDescription: 'Must contain only alphanumeric characters and be at
+      most 32 characters.'
+    MaxLength: 32
+    MinLength: 1
+    Type: String
+  RoundcubeS3KeyPrefix:
+    AllowedPattern: "^([0-9a-zA-Z-]+/)*$"
+    ConstraintDescription: 'Mirovoy CloudFront Assets S3 bucket  key prefix
+      can include numbers, lowercase letters, uppercase letters, hyphens (-),
+      and forward slash (/). The prefix should end with a forward slash (/).'
+    Default: "roundcube/"
+    Description: 'S3 key prefix for the Mirovoy CloudFormation assets. This
+      should be the top-level directory path inside the bucket, leading to the
+      assets for this template (e.g., scripts directory, etc... are located)'
+    Type: String
+  RoundcubeSecurityGroup:
+    Description: Select the Roundcube security group.
+    Type: AWS::EC2::SecurityGroup::Id
+  SAFinalDest:
+    AllowedValues:
+      - D_PASS
+      - D_BOUNCE
+      - D_DISCARD
+      - D_REJECT
+    Default: D_DISCARD
+    Description: Sets final_spam_destiny variable. The Debian default is
+      D_BOUNCE; the Ubuntu default is D_DISCARD, which is recommended, as
+      bouncing leads to backscatter and the sender is usually faked anyhow.
+      The package that installs here defaults to D_REJECT.
+      Setting it to D_PASS is useful for testing, as you can still run
+      mail through SpamAssassin, get the headers attached, but not filter
+      the message.
+    Type: String
+  SetMyHost:
+    AllowedValues:
+      - true
+      - false
+    Default: false
+    Description: "AmavisD has two variables, myhost and mydomain, which
+      get inserted into mail headers. By default, those values are
+      host.example.com and example.com, respectively. If you set this to
+      true, then those defaults will be changed to the host and domain
+      you configured as the primary server name, above."
+    Type: String
+  SkelFileDir:
+    Default: "var/skel/"
+    Description: "Path under S3 prefix for Banner text to put in the
+      alternate admin user's home dir, via /etc/skel/. Should end in a slash."
+    Type: String
+  Skin:
+    AllowedValues:
+      - classic
+      - larry
+    Description: "Skin name. Select from folders in roundcube skins/"
+    Default: larry
+    Type: String
+  SpoolSize:
+    ConstraintDescription: Must be an integer.
+    Default: 10
+    Description: Size (in GB) for device to mount on /var/spool
+    MaxValue: 16384
+    MinValue: 1
+    Type: Number
+  SwapSize:
+    ConstraintDescription: Must be an integer.
+    Default: 2
+    Description: "Size (in GB) for device to mount on /var/spool. If you do
+      not want to use swap (e.g., because you're using larger instances
+      with more memory), simply set this to zero."
+    MaxValue: 16384
+    MinValue: 1
+    Type: Number
+  UnknownLocalErrorCode:
+    AllowedValues:
+      - 450
+      - 550
+    Default: 550
+    Description: What code to send if local lookup on an address fails. Should
+      be 550 (reject mail), but is often worth setting to 450 (try again later)
+      while you make sure your local_recipient_maps settings are OK.
+    Type: Number
+  VirtualUID:
+    Default: 5000
+    Description: The UID to be assigned to the user "virtual" which owns all
+      mailboxes on the system. Note, we can't conveniently assign a GID with
+      CloudFormation, so unlike Flurdy where that is also 5000, the GID
+      for the virtual group will be assigned by the system.
+    Type: Number
+  VivitaPass:
+    Default: ''
+    Description: If insert test data is enabled, this will be the password
+      for test user "vivita@example.com".
+    Type: String
+  VpcStackName:
+    AllowedPattern: ^([a-zA-Z0-9]+[a-zA-Z0-9\-]*)$
+    ConstraintDescription: "A stack name can contain only alphanumeric
+      characters (case-sensitive) and hyphens. It must start with an
+      alphabetic character and can't be longer than 128 characters."
+    Description: The name of the stack that was used to create the VPC
+    MaxLength: 128
+    Type: String
+  XandrosPass:
+    Default: ''
+    Description: If insert test data is enabled, this will be the password
+      for test user "xandros".
+    Type: String
+
+Conditions:
+  CreateSwap:
+    !Not [!Equals ['0', !Ref SwapSize]]
+  DeployBackup:
+    !Or [!Equals [!Ref DeploymentType, "Primary and backup"],
+         !Equals [!Ref DeploymentType, "Primary, backup, webmail"]]
+  DeployWebmail:
+    !Or [!Equals [!Ref DeploymentType, "Primary and webmail"],
+         !Equals [!Ref DeploymentType, "Primary, backup, webmail"]]
+  EncryptedBoolean:
+    !Not [!Equals ['', !Ref Cmk]]
+  RoundcubeAcceptFakeSSL:
+    !Equals [!Ref CertSource, "generate test"]
+
+Resources:
+
+  mailstorage:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        AvailabilityZone: !Select [0, !Ref AvailabilityZones]
+        Cmk:
+          !Ref Cmk
+        CreateSwap:
+          !If [CreateSwap, "true", "false"]
+        EncryptedBoolean:
+          !If [EncryptedBoolean, "true", "false"]
+        LogDelPolicy:
+          !Ref EbsDelPolicy
+        LogSize:
+          !Ref LogSize
+        LogSnapshot:
+          !Ref MasterLogSnapshot
+        SpoolDelPolicy:
+          !Ref EbsDelPolicy
+        SpoolSize:
+          !Ref SpoolSize
+        SpoolSnapshot:
+          !Ref MasterSpoolSnapshot
+        SwapSize:
+          !Ref SwapSize
+      TemplateURL: !Join
+        - ''
+        - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
+          - mirovoy-refarch/infrastructure/latest/
+          - aws-mirovoy-ref-arch-02-mail-storage.yaml
+
+  backupmailstorage:
+    Condition: DeployBackup
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        AvailabilityZone: !Select [1, !Ref AvailabilityZones]
+        Cmk:
+          !Ref Cmk
+        CreateSwap:
+          !If [CreateSwap, "true", "false"]
+        EncryptedBoolean:
+          !If [EncryptedBoolean, "true", "false"]
+        LogDelPolicy:
+          !Ref EbsDelPolicy
+        LogSize:
+          !Ref LogSize
+        LogSnapshot:
+          !Ref BackupLogSnapshot
+        SpoolDelPolicy:
+          !Ref EbsDelPolicy
+        SpoolSize:
+          !Ref SpoolSize
+        SpoolSnapshot:
+          !Ref BackupSpoolSnapshot
+        SwapSize:
+          !Ref SwapSize
+      TemplateURL: !Join
+        - ''
+        - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
+          - mirovoy-refarch/infrastructure/latest/
+          - aws-mirovoy-ref-arch-02-mail-storage.yaml
+
+  mail:
+    DependsOn: mailstorage
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        ADLogLevel: "1"
+        AdminPubKey:
+          !Ref AdminPubKey
+        AdminUser:
+          !Ref AdminUser
+        AccountEmail:
+          !Ref AccountEmail
+        Banner:
+          !Ref Banner
+        CertFileDir:
+          !Ref CertFileDir
+        CertSource:
+          !Ref CertSource
+        DNSSleep:
+          !Ref DNSSleep
+        DNSZone:
+          !Join [',', !Ref DNSZone]
+        DatabaseStackName:
+          !Ref DatabaseStackName
+        EC2KeyName:
+          !Ref EC2KeyName
+        EnableOpenDkim: "true"
+        EnableSpfChecks: "true"
+        ExternalTestEmail:
+          !Ref ExternalTestEmail
+        InetProtocols:
+          !Ref InetProtocols
+        InsertTestData:
+          !Ref InsertTestData
+        MYS3KeyPrefix:
+          !Ref MailS3KeyPrefix
+        MailAMIID:
+          !Ref AMIID
+        MailDBBackup:
+          !Ref MailDBBackup
+        MailDBPassword:
+          !Ref MailDBPassword
+        MailDBUser:
+          !Ref MailDBUser
+        MailInstanceType:
+          !Ref InstanceType
+        MailSecurityGroup:
+          !Ref MailSecurityGroup
+        MirovoyCFAssetsBucket:
+          !Ref MirovoyCFAssetsBucket
+        OpenDkimDomains:
+          !Ref OpenDkimDomains
+        Origin:
+          !Ref Origin
+        PrimaryOrBackup: "primary"
+        RelayHost:
+          !Ref RelayHost
+        RootMailRecipient:
+          !Ref RootMailRecipient
+        SAFinalDest:
+          !Ref SAFinalDest
+        SSLDebug: "false"
+        ServerName:
+          !Select [0, !Ref ServerNames]
+        SetMyHost:
+          !Ref SetMyHost
+        SkelFileDir:
+          !Ref SkelFileDir
+        StorageStackName:
+          !GetAtt [mailstorage, Outputs.StackName]
+        Subnet:
+          Fn::ImportValue: !Sub '${VpcStackName}:PublicSubnet1'
+        UnknownLocalErrorCode:
+          !Ref UnknownLocalErrorCode
+        UseSwap:
+          !If [CreateSwap, "true", "false"]
+        VirtualUID:
+          !Ref VirtualUID
+        VivitaPass:
+          !Ref VivitaPass
+        XandrosPass:
+          !Ref XandrosPass
+      TemplateURL: !Join
+        - ''
+        - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
+          - mirovoy-refarch/infrastructure/latest/
+          - aws-mirovoy-ref-arch-04-mail.yaml
+
+  backupmail:
+    Condition: DeployBackup
+    DependsOn: backupmailstorage
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        AdminPubKey:
+          !Ref AdminPubKey
+        AdminUser:
+          !Ref AdminUser
+        AccountEmail:
+          !Ref AccountEmail
+        Banner:
+          !Ref Banner
+        CertFileDir:
+          !Ref CertFileDir
+        CertSource:
+          !Ref CertSource
+        DNSSleep:
+          !Ref DNSSleep
+        DNSZone:
+          !Join [',', !Ref DNSZone]
+        DatabaseStackName:
+          !Ref DatabaseStackName
+        EC2KeyName:
+          !Ref EC2KeyName
+        InetProtocols:
+          !Ref InetProtocols
+        MYS3KeyPrefix:
+          !Ref MailS3KeyPrefix
+        MailAMIID:
+          !Ref AMIID
+        MailDBPassword:
+          !Ref MailDBPassword
+        MailDBUser:
+          !Ref MailDBUser
+        MailInstanceType:
+          !Ref InstanceType
+        MailSecurityGroup:
+          !Ref MailSecurityGroup
+        MirovoyCFAssetsBucket:
+          !Ref MirovoyCFAssetsBucket
+        OpenDkimDomains:
+          !Ref OpenDkimDomains
+        Origin:
+          !Ref Origin
+        PrimaryOrBackup: "backup"
+        RelayHost:
+          !Ref RelayHost
+        RootMailRecipient:
+          !Ref RootMailRecipient
+        SAFinalDest:
+          !Ref SAFinalDest
+        SSLDebug: "false"
+        ServerName:
+          !Select [1, !Ref ServerNames]
+        SetMyHost:
+          !Ref SetMyHost
+        SkelFileDir:
+          !Ref SkelFileDir
+        StorageStackName:
+          !GetAtt [backupmailstorage, Outputs.StackName]
+        Subnet:
+          Fn::ImportValue: !Sub '${VpcStackName}:PublicSubnet2'
+        UnknownLocalErrorCode:
+          !Ref UnknownLocalErrorCode
+        UseSwap:
+          !If [CreateSwap, "true", "false"]
+        VirtualUID:
+          !Ref VirtualUID
+      TemplateURL: !Join
+        - ''
+        - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
+          - mirovoy-refarch/infrastructure/latest/
+          - aws-mirovoy-ref-arch-04-mail.yaml
+
+  webmail:
+    Condition: DeployWebmail
+    DependsOn: mail
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        AdminPubKey:
+          !Ref AdminPubKey
+        AdminUser:
+          !Ref AdminUser
+        AllowFakeCert:
+          !If [RoundcubeAcceptFakeSSL, true, false]
+        AllowPasswdChange:
+          !Ref AllowPasswdChange
+        AlternativeIAMRole:
+          !Ref AlternativeIAMRole
+        AlternativeInitializationScript:
+          !Ref AlternativeInitializationScript
+        CFAssetsBucket:
+          !Ref MirovoyCFAssetsBucket
+        DatabaseStackName:
+          !Ref DatabaseStackName
+        DnsName:
+          !Select [2, !Ref ServerNames]
+        EC2KeyName:
+          !Ref EC2KeyName
+        EnableDebug: "false"
+        EnvironmentVariables:
+          !Ref EnvironmentVariables
+        Hash:
+          !Ref Hash
+        MailDBName:
+          !Ref MailDBName
+        MailServerPrivateDNS:
+          !GetAtt [mail, Outputs.PrimaryMailServerPrivateDNS]
+        NumberOfSubnets: "2"
+        PublicAlbListenerArn:
+          !Ref PublicAlbListenerArn
+        RoundcubeAMIOS:
+          !Ref AMIID
+        RoundcubeDBName:
+          !Ref RoundcubeDBName
+        RoundcubeDBPass:
+          !Ref RoundcubeDBPass
+        RoundcubeDBUser:
+          !Ref RoundcubeDBUser
+        RoundcubeInstanceType:
+          !Ref InstanceType
+        RoundcubeSecurityGroup:
+          !Ref RoundcubeSecurityGroup
+        S3KeyPrefix:
+          !Ref RoundcubeS3KeyPrefix
+        SkelFileDir:
+          !Ref SkelFileDir
+        Skin:
+          !Ref Skin
+        Subnet:
+          Fn::ImportValue: !Sub '${VpcStackName}:AppSubnet'
+        UseLDAP: "false"
+        Vpc:
+          Fn::ImportValue: !Sub '${VpcStackName}:Vpc'
+      TemplateURL: !Join
+        - ''
+        - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
+          - mirovoy-refarch/infrastructure/latest/
+          - aws-mirovoy-ref-arch-05-roundcube.yaml
