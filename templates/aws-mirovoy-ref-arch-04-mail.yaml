@@ -1020,6 +1020,20 @@ Resources:
 
         add_test:
           files:
+            /tmp/xandrospass:
+              content: !Sub |-
+                ${XandrosPass}
+                ${XandrosPass}
+              mode: "000400"
+              owner: "root"
+              group: "root"
+            /tmp/vivitapass:
+              content: !Sub |-
+                ${VivitaPass}
+                ${VivitaPass}
+              mode: "000400"
+              owner: "root"
+              group: "root"
             /tmp/test.mysql:
               content: !Sub |
                 USE ${MailDBName};
@@ -1034,9 +1048,9 @@ Resources:
                         ('abuse@example.com','abuse@localhost');
                 REPLACE INTO users (id,name,maildir,crypt) VALUES
                         ('xandros@example.com','xandros','example.com/xandros/',
-                            SHA2('${XandrosPass}', 256)),
+                            'XANDROSPASS'),
                         ('vivita@example.com','vivita','example.com/vivita/',
-                            SHA2('${VivitaPass}', 256));
+                            'VIVITAPASS');
                 REPLACE INTO aliases (mail,destination) VALUES
                         ('xandros@example.com','xandros@example.com'),
                         ('vivita@example.com','vivita@example.com'),
@@ -1046,7 +1060,21 @@ Resources:
               owner: "root"
               group: "root"
           commands:
-            01_insert_data:
+            01_hash_vivita_pass:
+              command: !Join
+                - ''
+                # use ; as sed separator because / is a valid hash output
+                - - sed -i 's;VIVITAPASS;'"$(doveadm pw -s SHA512-CRYPT
+                  - ' < vivitapass 2>/dev/null);" test.mysql'
+              cwd: /tmp
+            02_hash_xandros_pass:
+              command: !Join
+                - ''
+                # use ; as sed separator because / is a valid hash output
+                - - sed -i 's;XANDROSPASS;'"$(doveadm pw -s SHA512-CRYPT
+                  - ' < xandrospass 2>/dev/null);" test.mysql'
+              cwd: /tmp
+            03_insert_data:
               command: !Join
                 - ''
                 - - "mysql -u "
