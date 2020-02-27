@@ -297,6 +297,11 @@ Outputs:
     Export:
       Name: !Join [":", [!Ref "AWS::StackName", FormatLog]]
     Value: !If [NoLogSnapshot, true, false]
+  StackName:
+    Description: The name of the stack
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", StackName]]
+    Value: !Ref "AWS::StackName"
   SwapVolumesBoolean:
     Description: Whether swap EBS volumes were created
     Export:
