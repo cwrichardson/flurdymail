@@ -525,7 +525,9 @@ Parameters:
     Default: 'mx1.example.com,mx2.example.com,webmail.example.com'
     Description: 'A comma separated list of fully-qualified domain names:
       <primary mail server>,<backup mail server>,<webmail>.
-      All three values must be provided.'
+      All three values must be provided, but may be empty. For example, if
+      you select "Primary and webmail" as deployment type, you may enter
+      "mail.example.com,,webmail.example.com" (without the quotation marks).'
     Type: CommaDelimitedList
   PublicAlbListenerArn:
     Description: "The public application load balancer listener's arn."
