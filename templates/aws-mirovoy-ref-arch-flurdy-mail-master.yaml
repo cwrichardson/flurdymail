@@ -428,9 +428,14 @@ Parameters:
       - t2.micro
       - t2.small
       - t2.medium
-      - t2.large
+      - t3.nano
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - m3.medium
+      - c5.large
     ConstraintDescription: Must be a valid Amazon EC2 instance type.
-    Default: t2.micro
+    Default: t3.nano
     Description: The Amazon EC2 instance type for your mail and
       rouncube instances.
     Type: String
