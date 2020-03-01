@@ -31,7 +31,6 @@ Metadata:
           - AvailabilityZones
           - DatabaseMasterPassword
           - PublicAlbAcmCertificate
-          - phpDnsName
       -
         Label:
           default: General Parameters
@@ -90,7 +89,8 @@ Metadata:
         Label:
           default: phpmyadmin Configuration
         Parameters:
-          - BlowfishSecret
+          - EnablePhpMyAdmin
+          - phpDnsName
           - phpEnvironmentVariables
           - phpInstanceType
           - AlternativePhpIAMRole
@@ -124,14 +124,24 @@ Metadata:
         default: Alternative phpmyadmin Initialization Script
       AMIOS:
         default: AMI ID for Servers
+      AppSubnet1Cidr:
+        default: App Subnet 1
+      AppSubnet2Cidr:
+        default: App Subnet 2
+      AvailabilityZones:
+        default: Availability Zones
       BastionEnvironmentVariables:
         default: Environment Variables
       BastionInstanceType:
         default: Instance Type
-      BlowfishSecret:
-        default: Blowfish Secret
       CFAssetsBucket:
         default: Mirovvoy CloudFormation Assets S3 bucket name
+      CreateMailSecGroup:
+        default: Create a security group for mail servers
+      CreateReplica:
+        default: Create Replica
+      CreateWebMailSecGroup:
+        default: Create a security group for webmail servers
       DatabaseEncryptedBoolean:
         default: Encrypt DB Cluster?
       DatabaseCmk:
@@ -144,24 +154,14 @@ Metadata:
         default: RDS Database Master Password
       DatabaseRestoreSnapshot:
         default: Snapshot to restore from
-      CreateReplica:
-        default: Create Replica
-      EC2KeyName:
-        default: Existing Key Pair
-      AppSubnet1Cidr:
-        default: App Subnet 1
-      AppSubnet2Cidr:
-        default: App Subnet 2
-      AvailabilityZones:
-        default: Availability Zones
-      CreateMailSecGroup:
-        default: Create a security group for mail servers
-      CreateWebMailSecGroup:
-        default: Create a security group for webmail servers
       DataSubnet1Cidr:
         default: Data Subnet 1
       DataSubnet2Cidr:
         default: Data Subnet 2
+      EC2KeyName:
+        default: Existing Key Pair
+      EnablePhpMyAdmin:
+        default: Enable phpMyAdmin
       NatEnvironmentVariables:
         default: NAT Environment Variables
       NatInstanceType:
@@ -304,19 +304,6 @@ Parameters:
     Default: t3.nano
     Description: Bastion EC2 instance type.
     Type: String
-  BlowfishSecret:
-    Default: ''
-    Description: 'phpmyadmin uses this to encrypt the password
-      stored in the cookie. From the docs: The \“cookie\” auth_type
-      uses AES algorithm to encrypt the password. If you are using
-      the \“cookie\” auth_type, enter here a random passphrase of
-      your choice. It will be used internally by the AES algorithm:
-      you won’t be prompted for this passphrase.
-
-      The secret should be 32 characters long. Using shorter will lead
-      to weaker security of encrypted cookies, using longer will cause
-      no harm.'
-    Type: String
   CFAssetsBucket:
     AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
     ConstraintDescription: 'Mirovoy CloudFormation Assets Bucket name can
@@ -360,6 +347,7 @@ Parameters:
       instance type."
     Type: String
   DatabaseCmk:
+    Default: ""
     Description: The ARN of the AWS KMS Customer Master Key (CMK) to encrypt
       the database cluster.
     Type: String
@@ -390,7 +378,7 @@ Parameters:
   DatabaseMasterUsername:
     AllowedPattern: ^([a-zA-Z0-9]*)$
     ConstraintDescription: "Must contain only alphanumeric characters
-      (minimum 8; maximum 16)."
+      (maximum 32)."
     Default: root
     Description: The "root" user to configure for the Amazon RDS database.
       You can change the username fron "root" if you wish, in optional
@@ -437,6 +425,13 @@ Parameters:
     Default: "true"
     Description: 'To include a banner to be displayed when connecting via SSH
       to the bastion, set this parameter to true.'
+    Type: String
+  EnablePhpMyAdmin:
+    AllowedValues:
+      - 'True'
+      - 'False'
+    Default: 'True'
+    Description: Deploy an autoscaling group for phpMyAdmin database manager
     Type: String
   NatEnvironmentVariables:
     Description: 'Specify a comma separated list of environment variables for
@@ -585,6 +580,14 @@ Parameters:
     Description: The allowed tenancy of instances launched into the VPC
     Type: String
 
+Conditions:
+  phpMyAdmin:
+    !Equals [!Ref EnablePhpMyAdmin, 'True']
+  hasMailSecGroup:
+    !Equals [!Ref CreateMailSecGroup, 'True']
+  hasWebMailSecGroup:
+    !Equals [!Ref CreateWebMailSecGroup, 'True']
+
 Resources:
   myvpc:
     Type: AWS::CloudFormation::Stack
@@ -702,6 +705,7 @@ Resources:
           - aws-mirovoy-ref-arch-03-nat.yaml
 
   phpmyadmin:
+    Condition: phpMyAdmin
     DependsOn: [securitygroups, publicalb, rds]
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -714,8 +718,6 @@ Resources:
           !Ref AlternativePhpIAMRole
         AlternativeInitializationScript:
           !Ref AlternativePhpInitializationScript
-        BlowfishSecret:
-          !Ref BlowfishSecret
         CFAssetsBucket:
           !Ref CFAssetsBucket
         DnsName:
@@ -824,3 +826,25 @@ Resources:
         - - https://mirovoy-public.s3.eu-central-1.amazonaws.com/
           - mirovoy-refarch/infrastructure/latest/
           - aws-mirovoy-ref-arch-02-securitygroups.yaml
+
+Outputs:
+  DatabaseStackName:
+    Value:
+      !GetAtt [rds, Outputs.StackName]
+  MailSecurityGroup:
+    Condition: hasMailSecGroup
+    Value:
+      !GetAtt [securitygroups, Outputs.MailSecurityGroup]
+  PublicAlbListenerArn:
+    Value:
+      !GetAtt [publicalb, Outputs.PublicAlbHttpsListener]
+  StackName:
+    Value:
+      !Ref "AWS::StackName"
+  VpcStackName:
+    Value:
+      !GetAtt [myvpc, Outputs.StackName]
+  WebmailSecurityGroup:
+    Condition: hasWebMailSecGroup
+    Value:
+      !GetAtt [securitygroups, Outputs.WebmailSecurityGroup]
