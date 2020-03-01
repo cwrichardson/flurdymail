@@ -470,12 +470,12 @@ Parameters:
     Type: String
   MailDBUser:
     AllowedPattern: ^([a-zA-Z0-9]*)$
-    Default: mailadmin
+    Default: mail
     Description: The MySQL username to have access to the mail database.
     ConstraintDescription: 'Must contain only alphanumeric characters and be at
-      least 8 characters.'
-    MaxLength: 16
-    MinLength: 8
+      maximum 32 characters.'
+    MaxLength: 32
+    MinLength: 1
     Type: String
   MaxUserConnections:
     Default: 25
