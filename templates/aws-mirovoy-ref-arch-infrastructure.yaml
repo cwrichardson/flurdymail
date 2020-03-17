@@ -332,7 +332,7 @@ Parameters:
     AllowedValues:
       - true
       - false
-    Default: true
+    Default: false
     Description: "Whether or not to create a read-replica instance of the
       database."
     Type: String
@@ -430,7 +430,7 @@ Parameters:
     AllowedValues:
       - 'True'
       - 'False'
-    Default: 'True'
+    Default: 'False'
     Description: Deploy an autoscaling group for phpMyAdmin database manager
     Type: String
   NatEnvironmentVariables:
