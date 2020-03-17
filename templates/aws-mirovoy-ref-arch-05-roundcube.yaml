@@ -248,13 +248,11 @@ Parameters:
     MinLength: 1
     Type: String
   RoundcubeDBPass:
-    AllowedPattern: ^([a-z0-9A-Z`~!#$%^&*()_+,\\-])*$
+    AllowedPattern: ^([a-z0-9A-Z`~!#$%^&*()_+,\\-]){8,41}$|^$
     ConstraintDescription: "Must be between 8 and 41 characters, including
       letters (upper or lower), numbers, and these special characters
       '_'`~!#$%^&*()_+,-"
     Description: The MySQL password for the roundcube-database user.
-    MaxLength: 41
-    MinLength: 8
     NoEcho: true
     Type: String
   RoundcubeDBName:
