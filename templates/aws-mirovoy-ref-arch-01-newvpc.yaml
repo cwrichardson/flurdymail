@@ -363,23 +363,13 @@ Resources:
                 Resource: '*'
 
 Outputs:
-
-  Vpc:
+  AppSubnet:
     Export:
-      Name: !Join [":", [!Ref "AWS::StackName", "Vpc"]]
-    Value: !Ref Vpc
-  VpcCidr:
-    Value: !Ref VpcCidr
-  PublicSubnet1:
-    Condition: AZ1
-    Export:
-      Name: !Join [":", [!Ref "AWS::StackName", "PublicSubnet1"]]
-    Value: !Ref PublicSubnet1
-  PublicSubnet2:
-    Condition: AZ2
-    Export:
-      Name: !Join [":", [!Ref "AWS::StackName", "PublicSubnet2"]]
-    Value: !Ref PublicSubnet2
+      Name: !Join [":", [!Ref "AWS::StackName", "AppSubnet"]]
+    Value:
+      !If [NumberOfAZs1, !Ref AppSubnet1,
+           !Join [',', [!Ref AppSubnet1, !Ref AppSubnet2]]
+      ]
   AppSubnet1:
     Condition: AZ1
     Value: !Ref AppSubnet1
@@ -398,31 +388,43 @@ Outputs:
     Export:
       Name: !Join [":", [!Ref "AWS::StackName", "AppSubnet2Cidr"]]
     Value: !Ref AppSubnet2Cidr
+  DataSubnet:
+    Value:
+      !If [NumberOfAZs1, !Ref DataSubnet1,
+           !Join [',', [!Ref DataSubnet1, !Ref DataSubnet2]]
+      ]
   DataSubnet1:
     Condition: AZ1
     Value: !Ref DataSubnet1
   DataSubnet2:
     Condition: AZ2
     Value: !Ref DataSubnet2
-  DataSubnet:
-    Value:
-      !If [NumberOfAZs1, !Ref DataSubnet1,
-           !Join [',', [!Ref DataSubnet1, !Ref DataSubnet2]]
-      ]
-  AppSubnet:
+  DefaultSecGroup:
+    Description: Default security group for the VPC
     Export:
-      Name: !Join [":", [!Ref "AWS::StackName", "AppSubnet"]]
-    Value:
-      !If [NumberOfAZs1, !Ref AppSubnet1,
-           !Join [',', [!Ref AppSubnet1, !Ref AppSubnet2]]
-      ]
+      Name: !Join [":", [!Ref "AWS::StackName", "DefaultSecGroup"]]
+    Value: !GetAtt Vpc.DefaultSecurityGroup
   PublicSubnet:
     Value:
       !If [NumberOfAZs1, !Ref PublicSubnet1,
            !Join [',', [!Ref PublicSubnet1, !Ref PublicSubnet2]]
       ]
-  StackName:
+  PublicSubnet1:
+    Condition: AZ1
     Export:
-      Name: StackName
+      Name: !Join [":", [!Ref "AWS::StackName", "PublicSubnet1"]]
+    Value: !Ref PublicSubnet1
+  PublicSubnet2:
+    Condition: AZ2
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", "PublicSubnet2"]]
+    Value: !Ref PublicSubnet2
+  StackName:
     Value:
       !Ref "AWS::StackName"
+  Vpc:
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", "Vpc"]]
+    Value: !Ref Vpc
+  VpcCidr:
+    Value: !Ref VpcCidr
