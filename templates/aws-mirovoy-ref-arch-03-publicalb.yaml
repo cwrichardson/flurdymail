@@ -171,9 +171,10 @@ Outputs:
     Value:
       !Ref PublicAlbListenerNoSslCertificate
   PublicAlbHttpsListener:
-    Condition: SslCertificate
     Value:
-      !Ref PublicAlbListenerSslCertificate
+      !If [SslCertificate,
+           !Ref PublicAlbListenerSslCertificate,
+           "none"]
   PublicAlbTargetGroupArn:
     Value:
       !Ref PublicAlbTargetGroup

@@ -27,17 +27,18 @@ Metadata:
           default: Mandatory Parameters
         Parameters:
           - EC2KeyName
+          - SshAccessCidr
           - NumberOfAZs
           - AvailabilityZones
           - DatabaseMasterPassword
           - PublicAlbAcmCertificate
+          - AMIOS
       -
         Label:
-          default: General Parameters
+          default: Recommended Parameters
         Parameters:
           - AdminUser
           - AdminPubKey
-          - AMIOS
       -
         Label:
           default: Amazon VPC Parameters
@@ -54,7 +55,6 @@ Metadata:
         Label:
           default: AWS Security Group Parameters
         Parameters:
-          - SshAccessCidr
           - CreateMailSecGroup
           - CreateWebMailSecGroup
       -

@@ -104,6 +104,7 @@ Parameters:
     MinValue: 1
     Type: Number
   LogSnapshot:
+    Default: ""
     Description: The snapshot name from which to restore /var/log
     Type: String
   LogDelPolicy:
@@ -130,6 +131,7 @@ Parameters:
     MinValue: 1
     Type: Number
   SpoolSnapshot:
+    Default: ""
     Description: The snapshot name from which to restore /var/spool
     Type: String
   SwapSize:

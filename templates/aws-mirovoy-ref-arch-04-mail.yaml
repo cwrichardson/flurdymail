@@ -81,7 +81,6 @@ Metadata:
           - AccountEmail
           - DNSZone
           - DNSSleep
-          - CertFileDir
       - Label:
           default: Dovecot Parameters
         Parameters:
@@ -129,8 +128,6 @@ Metadata:
         default: SSH public key for the AdminUser
       Banner:
         default: SMTPD banner message
-      CertFileDir:
-        default: S3 Directory for SSL certificate files
       CertSource:
         default: Source for SSL certificate(s)
       DatabaseStackName:
@@ -272,24 +269,15 @@ Parameters:
       It should be enough to be useful, but not give away unnecessary
       information to potential hackers.
     Type: String
-  CertFileDir:
-    Default: ""
-    Description: "Path under S3 prefix from which to grab SSL certs.
-      Should end in a slash."
-    Type: String
   CertSource:
     AllowedValues:
       - generate test
       - generate real
-      - S3
-      - none
     Default: generate test
     Description: Where to get the SSL certificates. By default, certificates
       will be obtained from the LetsEncrypt staging server (fake certs,
       untrusted in the wild). Set to "generate real" to generate real
-      LetsEncrypt certs. Set to "S3" to download certificates from the
-      certificate file directory specified under you S3 bucket/prefix.
-      Set to "none" to manually install your certificates later.
+      LetsEncrypt certs.
     Type: String
   DelayWarningTime:
     Default: 4h
@@ -702,8 +690,6 @@ Conditions:
     !Equals [!Ref Origin, 'domain']
   DontStart:
     !Equals [!Ref DisableServices, '08 Configure all but start none']
-  DownloadCerts:
-    !Equals [!Ref CertSource, 'S3']
   EnableDovecot:
     !Or
     - Condition: DontStart

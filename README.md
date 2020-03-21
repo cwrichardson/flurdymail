@@ -2,7 +2,7 @@
 
 # **Launching A Flurdy Email Server on AWS with CloudFormation**
 
-### Version 0.99.1
+### Version 0.99.2
 (ref [Flurdy 14th edition][flurdy edition], [Jon Jerome])
 
 ---
@@ -46,16 +46,18 @@ CloudFormation].
 - [To Do](#to-do)
 - [Notes](#notes)
 
-# Introduction ## Description
+# Introduction
+
+## Description
 
 This reference architecture provides a set of YAML templates for
 deploying primary and backup [Flurdy email servers][flurdy] (as
 extended by [Jon Jerome] for Dovecot support) on AWS using [AWS
 CloudFormation]. The servers run [Amazon Linux 2], [Postfix],
 [Dovecot] IMAP, [Amazon RDS MySQL], [Amavis] (amavisd-new with
-SpamAssassin Perl module), [ClamAV], SASL, TLS, and [Postgrey] with
-optional additional servers deployed for [Roundcube], and [phpMyAdmin],
-behind [Elastic Load Balancing].
+SpamAssassin Perl module), [ClamAV], SASL, TLS (with [LetsEncrypt]
+certs), and [Postgrey] with optional additional servers deployed
+for [Roundcube], and [phpMyAdmin], behind [Elastic Load Balancing].
 
 The dedicated Flurdy fan will already notice several, minor variations
 from the default Flurdy deployment (the use of Amazon Linux 2 instead
@@ -84,7 +86,7 @@ one from scratch), it takes _days_ for me to figure it out and get
 things working. Enter CloudFormation. Now, with near-enough the
 click of a button, I can have a fully-functional testing environment
 set up where I can poke around with whatever changes I want to make,
-without disrupting my "production" servers.  Then I can do something
+without disrupting my production servers.  Then I can do something
 like a blue-green swap, and _voilà_.
 
 Plus, this was a good excuse to learn CloudFormation.
@@ -99,14 +101,20 @@ to make them better (see [To Do](#to-do)).
 
 _**[Chris Richardson]**_
 
-## TL;DR — Launch the Stack To launch the entire stack and deploy
-a Flurdy primary (and, optionally, backup) email server on AWS,
-click on one of the **Launch Stack** links below. When you're done,
-point your DNS entries for webmail.example.com and phpmyadmin.example.com
-(replaced with your correct domain names) to the load balancer.
+## TL;DR — Launch the Stack
+
+To launch the entire stack and deploy a Flurdy primary (and,
+optionally, backup) email server on AWS, copy the directory structure
+and files from mirovoy-cf-helpers to a private S3 bucket. click on
+one of the **Launch Stack** links below and enter the necessary
+parameters. In about 20 minutes, you should have everything up and
+running, and you can go update your DNS entries.
 
 *Caveat emptor*, you should not do this unless you're familiar both
 with the Flurdy email server setup, and AWS CloudFormation.
+
+*NB*: You must have a [Route53] Hosted Zone for the domain in which the
+mail servers will be put.
 
 *NB*: If you enable phpMyAdmin or Roundcube support, you *must*
 create a certificate in [AWS Certificate Manager]. The certificate
@@ -138,19 +146,22 @@ must include the relevant DNS names.
 ![architecture-overview](images/Mirovoy-AWS-Architecture-Light-190609a.png)
 
 The repository consists of a set of nested templates. The master
-template nests four sub-templates: one for general infrastructure,
-one for phpMyAdmin, one for web-specific infrastructure, and one
-for email-specific infrastructure.  Each of these, in turn, nest a
-series of templates which are run in order. Nested templates can
-be run individually in order, entering the appropriate input
-parameters for each stack. To just get things running as quickly
-as possible, go ahead and run the master template. However, in
-actual practice, I tend to run the first-level stacks (infrastructure,
-phpMyAdmin, web, and email) separately.  Even (especially) when
-making minor changes, I do this because the databases take a long
-time to set up (it's only a few minutes, but if you have to take
-them down and set them back up every time you make a change and get
-a typo in YAML, it becomes annoying).
+template nests two sub-templates: one for general infrastructure,
+one for mail services.  Each of these, in turn, nest a series of
+templates which are run in order. Nested templates can be run
+individually in order, entering the appropriate input parameters
+for each stack. Additionally, when run as individual templates,
+there are more configuration options (CloudFormation has a limit
+of 60 parameters); however, to just get things running as quickly
+as possible, go ahead and [run the master
+template](#tldr--launch-the-stack).
+
+In actual practice, I tend to run the first-level stacks
+(infrastructure, and flurdy-mail-master) separately.  Even (especially)
+when making minor changes, I do this because the databases take a
+long time to set up (it's only a few minutes, but if you have to
+take them down and set them back up every time you make a change
+and get a typo in YAML, it becomes annoying).
 
 The infrastructure template sets up the [Amazon Virtual Private
 Cloud], with three subnets — one public subnet (a DMZ in classic
@@ -159,27 +170,26 @@ private subnet for the data layer — in each of two availability
 zones; two [Auto Scaling] groups (one for [NAT Instances], which
 by default spin up one instance per AZ, and one for [Bastion Hosts],
 which by default spin up none); and an Amazon RDS MySQL server in
-the data subnet in one availability zone, with a read-replica MySQL
-server in the second availability zone. Optionally, it creates an
-[Application Load Balancer] (ALB), which splits traffic across the
-Webmail servers (in my live deployments these same servers are used
-for my WordPress hosting) and phpMyAdminServers. A single ALB is
-used for both web and phpMyAdmin, and traffic routing is accomplished
-with [host-based routing]. To do this, you must know the DNS name
-you want to use for each service, which you will manually assign
-to the ALB, later. If you run your own DNS somewhere other than
-AWS, you can do this as a CNAME, or if you use Route53, you can
-create an alias. *NB*: if you configure either Roundcube or phpMyAdmin,
-you _must_ enable the ALB.
+the data subnet in one availability zone.
 
-The email template sets up an [Amazon EC2] (Amazon Elastic Compute
+Additionally, it creates an [Application Load Balancer] (ALB), which
+splits traffic across the Webmail servers (in my live deployments
+these same servers are used for my WordPress hosting) and
+phpMyAdminServers. A single ALB is used for both web and phpMyAdmin,
+and traffic routing is accomplished with [host-based routing]. To
+do this, you must know the DNS name you want to use for each service,
+which you will manually assign to the ALB, later. If you run your
+own DNS somewhere other than AWS, you can do this as a CNAME, or
+if you use Route53, you can create an alias.
+
+The mail template sets up an [Amazon EC2] (Amazon Elastic Compute
 Cloud) instance running a Flurdy server in one of the public subnets,
 and optionally a Flurdy backup server in the other public subnet;
-and [Elastic Block Store] volumes for spool and (optionally) log
-for each of the primary and backup mail servers. The Flurdy server
-runs Postfix, Dovecot, SpamAssassin, ClamAV, and PostGrey. The
-system uses SASL Authentication, and TLS encryption. The certificates
-can be automatically generated from LetsEncrypt.
+and [Elastic Block Store] volumes for spool and log for each of the
+primary and backup mail servers. The Flurdy server runs Postfix,
+Dovecot, SpamAssassin, ClamAV, and PostGrey. The system uses SASL
+Authentication, and TLS encryption. The certificates are automatically
+generated from LetsEncrypt.
 
 The optional phpMyAdmin template configures an autoscaling group.
 By default zero instances are enabled. Much like the Bastion
@@ -188,19 +198,17 @@ with phpMyAdmin, you go to the EC2 console and change the minimum
 and desired number of instances to 1. See the notes on the
 infrastructure template (above) for mandatory requirements if you're
 going to enable this feature. Both phpMyAdmin and Roundcube rely
-on [Amazon Certificate Manager] for SSLl
+on [Amazon Certificate Manager] for SSL.
 
-The optional web template configures an autoscaling group, which
+The optional webmail template configures an autoscaling group, which
 defaults to 1 EC2 instance running [Apache] and Roundcube. See the
 notes on the infrastructure template (above) for mandatory requirements
 if you're going to enable this feature. Both phpMyAdmin and Roundcube
-rely on [Amazon Certificate Manager] for SSLl
+rely on [Amazon Certificate Manager] for SSL.
 
 In addition to these general resources, if you have configured at
 least one Amazon [Key Management Service] key, then you can configure
 either or both your RDS instances and EBS storage to be encrypted.
-Automatic backups can be configured to push to S3 on a regular
-basis, and then from S3 to Glacier after an extended period.
 
 Finally, you have the option to populate the databases with Flurdy
 test data, and to turn services on/off incrementally to aid in
@@ -212,7 +220,7 @@ There are only a few simple steps in order to get your email
 environment up and running:
 
 1. Populate CloudFormation Helpers
-2. Create an AWS SSL Certificate
+2. Create an AWS SSL Certificate for the ALB
 3. Run the templates
 4. Populate your database
 
@@ -240,7 +248,7 @@ publicly accessible.
 
 Clone or download this repository.
 
-Populate your new S3 buckets with the files from `cf-helpers`.
+Populate your new S3 buckets with the files from `mirovoy-cf-assets`.
 
 ## Create an AWS SSL Certificate
 
@@ -257,7 +265,9 @@ The domain names you add should include both the fully-qualified
 domain name for your phpMyAdmin service (e.g., `phpmyadmin.example.com`)
 and your roundcube service (e.g., `webmail.example.com`). If you're
 going to run other services on this same infrastructure, you can
-include those as well (e.g., `www.example.com`).
+include those as well (e.g., `www.example.com`); however, *NB*: if
+you're going to use CloudFront for your other services, that
+certificate _must_ be created in the us-east-1 region.
 
 ## Run the templates
 
@@ -270,13 +280,13 @@ there are a few reasons you may not want to do this.
 First, time. If you're experimenting with the configuration, and
 something goes wrong, the whole nest will roll back. By executing
 the master, you can get a Flurdy email server environment up and
-running in less than 30 minutes. But, if something goes wrong
+running in about 20 minutes, but if something goes wrong
 because, for example, you made a simple typo or didn't change a
 parameter that you really meant to change, you don't want to have
-to wait 30 minutes to fix this. This is worse when you're experimenting,
+to wait 20 minutes to fix this. This is worse when you're experimenting,
 as you may have to play around with things several times to get
-them to work. Waiting 30 minutes every time you make a change gets
-very annoying, quickly.
+them to work. Waiting 20 minutes every time you make a change gets
+very annoying, very quickly.
 
 Second, modularity. You may run this stack, and find you really
 like it.  Great! Since you like it, you decide to run other services
@@ -293,17 +303,9 @@ surprisingly quickly. As a result, running the `flurdy-mail-master`
 template gives you less configurability than running the templates
 one by one, and running the `master` template gives you even less.
 
-Fourth, timing. If you're working on changes, you'll ultimately
-want to migrate your existing users and data from your old deployment
-to your new one. That doesn't really matter during the development
-and testing phases, but when it comes time to move, you'll want to
-spin up a new backup server, stop your old servers and snapshot
-them, and then spin up your new primary server using those backups.
-
 For these reasons, the way I actually use this in practice is to
-spin up the `infrastructure` nest, then the backup MX, primary MX,
-and roundcube stacks individually. YMMV, and you'll figure out what
-works best for you.
+spin up the `infrastructure` nest, then `flurdy-mail-master` nest.
+YMMV, and you'll figure out what works best for you.
 
 ## Populate your database
 
@@ -377,6 +379,7 @@ and use it as input to this configuration template.
 In addition to the excellent [testing guidelines][flurdy test]
 provided by Flurdy, I found the following resources extremely useful:
 
+* [Test SASL]
 * [Testing IMAP with openssl]
 * [Certificate testing with openssl]
 * [Test spamassassin]
@@ -384,199 +387,26 @@ provided by Flurdy, I found the following resources extremely useful:
 # Parameters
 
 Almost all configuration that is described in the Flurdy documentation
-defaults to that setting, and you should read the docs. However,
-there are several configuration parameters which need to be set to
-use these templates which are not covered by Ivar or Jon. Those
-parameters are discussed here.
+defaults to that setting, and you should read the docs. This section
+covers the required parameters used in the top level template. For
+full details on all parameters, including the nested templates, see
+[the parameter documentaiton][ParameterDoc].
 
-### General Parameters
+## Mandatory Parameters
 
-#### Alternative superuser account to create
-
-The Linux username for your alternative to the default ec2-user
-that is created. This user will be created on all instances, whether
-the standalone mail servers, or the auto-scaling groups.
-
-#### SSH public key for the AdminUser
-
-The SSH public key for the above user. It's the **public** key, so
-there's no danger in sharing it widely.
-
-#### Existing Key Pair
-
-This is the EC2 key pair that you want to use to set up the machines
-(i.e., the key pair for ec2-user). You may not want to use this key
-yourself, but you'll need to keep it installed so the stack can
-still be managed (there's probably some way to allow you to upload
-your own private key to manage the stack, but that seems ... silly.
-If Amazon has your key, why not just use their key?).
-
-#### AMI ID for Servers
-
-Ivar recommends creating an AMI for all your future server uses. I
-used to do that, but maintaining your own images is hard, and they
-don't stay current. This is part of the reason I selected Amazon
-Linux 2 — I'm pretty sure Amazon's engineers are better than me at
-keeping the OS up to date and stable. They may not be as good as
-the broader Linux community that you get with Ubuntu or Debian,
-but, then again, we're not doing anything fancy in userland, except
-for AWS specific stuff, so that's what we most care about being
-current. Ergo, I use Amazon Linux 2. This field is a URL to an
-[Amazon SSM parameter store] for the AMI you want to use. If you
-go look at other CloudFormation templates, they will often use a
-mapping to get a per-region AMI. When I initially wrote this, I
-used that same paradigm, but put in my own AMIs. I changed to this
-method because it seems cleaner. However, this URL resolves to a
-value of type `'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'`.
-If you're using one of the sub-templates diredtly, you can use any
-AMI ID that way. However, at the top level, it must be a URL, which
-is interpreted as a string and passed to the subtemplates. So, if
-you want to use a custom AMI, you have to get an SSM Parameter Store
-ID for it.
-
-### Amazon VPC Parameters
-
-#### Number of Availability Zones
-
-Currently, this must be exactly two. I've left it as a configuration
-parameter, because I'd like to make it adjustable in the future (to
-support 3 or more), but that's too annoying for right now, and two
-should be sufficient for most use cases. I also wanted to let it
-be one, because, in particular, for testing it seems superfulous
-to spin up extra resources.  Unfortunately, I also wanted to pull
-MySQL off of the Flurdy server and into RDS ... and RDS requires
-at least two availability zones. Ergo, we must have two.
-
-#### VPC Subnets
-
-You can configure these however you want within the rules of [AWS
-VPC subnetting] (between a /16 and a /28). If you don't know what
-CIDR stands for, just leave them alone. They're fine. Here's what
-they look like by default:
-
-![default-subnets](images/Mirovoy-AWS-Architecture-Light-Subnets-190609a.png)
-
-### AWS Security Group Parameters
-
-#### SSH Access From
-
-Internally to the VPC, the instances only accept SSH connections
-from the Bastion instances, which are part of an autoscaling group
-with zero members. If you want to access any instances direclty,
-you need to launch a Bastion instance. Once that instance is launched,
-this is the address range from which it will accept connections.
-If you're an individual or small comnpany behind a NAT, you should
-probably set this to <my.ip.v4.addr>/32. If you have routable
-addresses assigned to your corporation, you can be broader. If you
-are often moving about or otherwise don't have fixed addresses, you
-can leave the default (accessible from anywhere), and rely on the
-(lack of) existence of Bastion hosts to minimize outside attacks.
-
-##### Using Bastion to access EC2 instances
-
-From the EC2 console, navigate to Auto Scaling groups and find the
-Bastion launch configuration for your stack. Edit the launch
-configuration and set the desired instances to 1. Press Save and
-the Bastion instance will be created. Bastion is a gateway to your
-instances for enhanced security.
-
-SSH into the public IP address of the Bastion with `ssh -A` if
-you've already done `ssh-add`. From there, you can ssh to the private
-IP address of any of your instances (you get the public and private
-IP addresses of instances from the AWS EC2 console).
-
-#### Create a Security Group for Mail Servers
-
-This should probably always be "True". The only reason I can think
-of to set it to false is if you want to use the infrastructure
-templates for something other than mail.
-
-### Amazon MySQL RDS Parameters
-
-Most of these are self explanatory. However, a few deserve comment.
-
-#### DB Instance Class
-
-For almost everything, I use the smallest instance available. For
-home users, and even small businesses, nano sized servers are
-sufficient (e.g., you can run multiple WordPress sites from a nano
-instance). However, in the case of RDS, you can't go that small.
-The smallest (cheapest) you can actually select is db.t2.micro.
-However, that instance size doesn't support encryption at rest.
-So, if you're going to encrypt your databases at rest, you need to
-select at least db.t2.medium. That makes this far-and-away the most
-expensive part of the solution, but it's still not too bad.
-
-#### AWS KMS Customer Master Key (CMK) to encrypt DB
-
-This is the ARN of a CMK that you've previously created in AWS. You
-can use the same key for this and for encrypting your EBS volumes
-at rest, or different ones. (See [AWS KMS Best Practices]).
-
-##### Optional: Encrypting Amazon MySQL DB data at Rest
-
-This reference architecture allows you to encrypt your databases
-using keys you manage through AWS Key Management Service (KMS). On
-a database instance running with Amazon encryption, data stored at
-rest in the underlying storage is encrypted, as are the automated
-backups, snapshots, and replicas. Encryption and decryption are
-handled seamlessly so you don’t have to modify your application to
-access your data. When you launch this AWS Cloudformation stack,
-you can choose to enable database encryption via a parameter in the
-master template.
-
-#### Snapshot to restore from
-
-If you're doing blue-green hot swaps, you can use this to move your
-database from one production stack to the other.
-
-### Bastion and NAT Configuration
-
-#### Instance Type
-
-You probably just want to leave this as is. **Maybe** you can get
-enough traffic to justify a larger NAT size, but you'd almost
-certainly have to be too large of an organization to be using these
-templates in order to increase your Bastion size. Nevertheless,
-your call. (See [this blog post][t2vt3] for a discussion of t2 vs
-t3).
-
-#### Alternative IAM Role, Initialization Script, and Environment
-Variables
-
-Hey, why not role your own? That's what these are for. Until you're
-sure, probably leave them alone.
-
-#### Enable Banner and BastionBanner
-
-See [AWS S3 Configuration](#aws-s3-configuration).
-
-### AWS S3 Configuration
-
-This is probably needlessly complex. It's not that complex. But it
-could probably be simpler.
-
-S3 URLs look like
-
-`https://<asset-bucket>.s3-<region>.amazonaws.com/<key/prefix/to/stuff>/<stuff>`
-
-I keep Bastion and NAT scripts in
-
-`https://mirovoy-public.s3-eu-central-1.amazonaws.com/mirovoy-refarch/cf-helpers/latest/[bastion|nat]/[scripts|var]`
-
-So, if you've checked out this repository, but modified the scripts,
-you can put them in your own S3 bucket, and then replace "mirovoy-public"
-with your bucket name, and "mirovoy-refarch/cf-helpers/latest/"
-with your prefix. Then, underneath that, create
-
-* bastion/scripts/bastion_bootstrap.sh
-* bastion/var/banner_message.txt
-* bastion/var/skel/profile
-* bastion/var/skel/shrc
-* nat/scripts/configure-pat.sh
-* nat/scripts/nat_bootstrap.sh
-
-and play 'till your heart's content.
+**Parameter:** DeploymentType
+**AllowedValues:**
+- "Primary only"
+- "Primary with phpMyAdmin"
+- "Primary and webmail"
+- "Primary and webmail with phpMyAdmin"
+- "Primary and backup"
+- "Primary, backup, phpMyAdmin"
+- "Primary, backup, webmail, phpMyAdmin"
+**Default:** "Primary, backup, webmail, phpMyAdmin"
+**Description:** Which services to deploy.
+**Type:** String
+**Availability:** master.yaml
 
 # Variances from Flurdy
 
@@ -654,7 +484,6 @@ the ability to support other shells is on the To Do list).
 Flurdy uses Ubuntu. Jon Jerome uses Debian. These templates use
 Amazon Linux 2 (probably for [no good reason]).
 
-
 ### GID and UID
 
 Flurdy sets the GID and UID for virtual to 5000 in both cases. The
@@ -680,10 +509,10 @@ to prefix "maildir:" to the maildir path.
 
 ### SSL Certificates
 
-#### SSL for Email: Let's Encrypt
+#### SSL for Email: LetsEncrypt
 
 These templates default to getting "fake" SSL certificates for the
-email servers from [Let's Encrypt], using [acme.sh]. This is
+email servers from [LetsEncrypt], using [acme.sh]. This is
 approximately equivalent to creating your own CA. The benefit is,
 once everything is working, you can switch the configuration option,
 and get real SSL certificates that will be accepted by people's
@@ -775,53 +604,6 @@ SOCKET="local:/var/spool/postfix/var/run/opendkim/opendkim.sock"
 it is
 
 Socket local:/var/spool/postfix/var/run/opendkim/opendkim.sock
-
-XXX Mail Stuff Here
-
-#### Optional: Encrypting Amazon EFS Data & Metadata at Rest
-
-Amazon EFS integrates with AWS Key Management Service (KMS) to
-support encryting file system contents using AWS KMS Customer Master
-Keys (CMKs). In an encrypted file system, data and metadata are
-automatically encrypted before being written to the file system.
-Similarly, as data and metadata are read, they are automatically
-decrypted before being presented to the application. These processes
-are handled transparently by Amazon EFS, so you don’t have to modify
-WordPress to take advantage of encrypted file systems. Encryption
-at rest is enabled by default for file systems you create using
-this cloudformation template. This option is exposed as a configurable
-Cloudformation template parameter. 'true' creates an encrypted file
-system. 'false' creates an unencrypted file system. To use the
-AWS-managed CMK for Amazon EFS (key alias: aws/elasticfilesystem)
-leave the *"Existing AWS KMS CMK for EFS"* parameter empty. To use
-a specific customer-managed CMK (within this AWS account or another
-AWS account) enter the CMKs ARN in the "Existing AWS KMS CMK for
-EFS" parameter field.
-
-#### Optional: Amazon Certificate Manager SSL/TLS Certificates
-
-AWS Certificate Manager (ACM) is a service that lets you easily
-provision, manage, and deploy Secure Sockets Layer/Transport Layer
-Security (SSL/TLS) certificates for use with AWS services. SSL/TLS
-certificates provisioned through AWS Certificate Manager are free.
-
-If you don't already have an SSL/TLS certificate for your domain
-name, it is recommended that you request one using ACM. For more
-information about requesting an SSL/TLS certificate using ACM,
-please read the [AWS Certificate Manager User
-Guide](http://docs.aws.amazon.com/acm/latest/userguide/acm-overview.html).
-
-Use ACM to request a certificate or import a certificate into ACM.
-To use an ACM certificate with CloudFormation (optional input
-parameter), you must request or import the certificate in the US
-East (N. Virginia) region. To use an ACM certificate with Amazon
-ELB - Application Load Balancer (optional input parameter), you
-must request or import the certificate in the region you create the
-CloudFormation stack. After you validate ownership of the domain
-names in your certificate, ACM provisions the certificate. Use the
-ACM certificate Amazon Resource Name (ARN) as the optional Cloudfront
-and/or Public ALB ACM certificate input parameters of the master
-template.
 
 ## Notes
 
@@ -951,7 +733,7 @@ manually generate paswwords.
 [launch-euw1]: https://console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/new?stackName=FlurdyEmail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/mail-and-web/latest/aws-mirovoy-ref-arch-mail-master.yaml
 [launch-euc1]: https://console.aws.amazon.com/cloudformation/home?region=eu-central-1#/stacks/new?stackName=FlurdyEmail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/mail-and-web/latest/aws-mirovoy-ref-arch-mail-master.yaml
 [launch-apse2]: https://console.aws.amazon.com/cloudformation/home?region=ap-southeast-2#/stacks/new?stackName=FlurdyEmail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/mail-and-web/latest/aws-mirovoy-ref-arch-mail-master.yaml
-[Let's Encrypt]:https://letsencrypt.org
+[LetsEncrypt]:https://letsencrypt.org
 [NAT Instance]:https://docs.aws.amazon.com/vpc/latest/userguide/VPC_NAT_Instance.html
 [Network Load Balancer]:https://docs.aws.amazon.com/elasticloadbalancing/latest/application/introduction.html
 [no good reason]:https://www.juliandunn.net/2018/01/05/whats-amazon-linux-might-use/
@@ -962,6 +744,7 @@ manually generate paswwords.
 [Route53]:https://aws.amazon.com/route53/
 [Simple Server]:http://flurdy.com/docs/ec2/ubuntu/index.html
 [t2vt3]:https://www.cloudsqueeze.ai/amazons-t3-who-should-use-it-when-how-and-the-why/index.html
+[Test SASL]: https://www.cs.ait.ac.th/~on/postfix/SASL_README.html#server_test
 [Test spamassassin]:https://spamassassin.apache.org/gtube/gtube.txt
 [Testing IMAP with openssl]:https://tewarid.github.io/2011/05/10/access-imap-server-from-the-command-line-using-openssl.html
 [WordPress]:https://wordpress.org

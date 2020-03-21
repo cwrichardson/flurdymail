@@ -27,10 +27,22 @@ Metadata:
           default: Mandatory Parameters
         Parameters:
           - VpcStackName
+          - DatabaseStackName
           - DeploymentType
+          - ServerNames
+          - DNSZone
           - AvailabilityZones
           - InstanceType
           - AMIID
+          - EC2KeyName
+          - MailSecurityGroup
+          - MailDBPassword
+      -
+        Label:
+          default: Mandatory if Enabled — Webmail
+        Parameters:
+          - PublicAlbListenerArn
+          - RoundcubeSecurityGroup
       -
         Label:
           default: Recommended Parameters
@@ -48,16 +60,11 @@ Metadata:
           - EbsDelPolicy
           - MasterSpoolSnapshot
           - MasterLogSnapshot
-          - BackupSpoolSnapshot
-          - BackupLogSnapshot
       -
         Label:
           default: MX EC2 Instance Parameters
         Parameters:
-          - ServerNames
           - VirtualUID
-          - EC2KeyName
-          - MailSecurityGroup
           - InsertTestData
           - XandrosPass
           - VivitaPass
@@ -66,10 +73,8 @@ Metadata:
         Label:
           default: Database Parameters
         Parameters:
-          - DatabaseStackName
           - MailDBName
           - MailDBUser
-          - MailDBPassword
           - MailDBBackup
           - RoundcubeDBName
           - RoundcubeDBUser
@@ -91,9 +96,7 @@ Metadata:
         Parameters:
           - CertSource
           - AccountEmail
-          - DNSZone
           - DNSSleep
-          - CertFileDir
       -
         Label:
           default: Amavisd, SpamAssassin, ClamAV
@@ -104,14 +107,12 @@ Metadata:
         Label:
           default: Roundcube
         Parameters:
+          - Skin
+          - Hash
           - AllowPasswdChange
           - AlternativeIAMRole
           - AlternativeInitializationScript
           - EnvironmentVariables
-          - Hash
-          - PublicAlbListenerArn
-          - RoundcubeSecurityGroup
-          - Skin
       -
         Label:
           default: AWS S3 Configuration
@@ -129,7 +130,7 @@ Metadata:
       AdminPubKey:
         default: SSH public key for the alternative superuser
       AllowPasswdChange:
-        default: Enable passowrd plugin
+        default: Enable password plugin
       AlternativeIAMRole:
         default: Alternative IAM Role
       AlternativeInitializationScript:
@@ -138,14 +139,8 @@ Metadata:
         default: AMI ID for Servers
       AvailabilityZones:
         default: Availability Zones
-      BackupLogSnapshot:
-        default: MX Backup /var/log Snapshot ID
-      BackupSpoolSnapshot:
-        default: MX Backup /var/spool Snapshot ID
       Banner:
         default: SMTPD banner message
-      CertFileDir:
-        default: S3 Directory for SSL certificate files
       CertSource:
         default: Source for SSL certificate(s)
       Cmk:
@@ -291,33 +286,16 @@ Parameters:
       deploy the mail stack. Logical order is preserverd (so, the first
       selected is where the primary mail server will go).'
     Type: List<AWS::EC2::AvailabilityZone::Name>
-  BackupLogSnapshot:
-    Default: ""
-    Description: The snapshot name from which to restore /var/log for the
-      backup mail server.
-    Type: String
-  BackupSpoolSnapshot:
-    Default: ""
-    Description: The snapshot name from which to restore /var/spool for the
-      backup mail server
-    Type: String
   Banner:
     Default: "$myhostname ESMTP $mail_name"
     Description: What to display when someone connects for SMTP.
       It should be enough to be useful, but not give away unnecessary
       information to potential hackers.
     Type: String
-  CertFileDir:
-    Default: ""
-    Description: "Path under S3 prefix from which to grab SSL certs.
-      Should end in a slash."
-    Type: String
   CertSource:
     AllowedValues:
       - generate test
       - generate real
-      - S3
-      - none
     Default: generate test
     Description: Where to get the SSL certificates. By default, certificates
       will be obtained from the LetsEncrypt staging server (fake certs,
@@ -356,13 +334,14 @@ Parameters:
       DNS TXT entry, try upping this.'
     Type: Number
   DNSZone:
-    Description: 'The Route53 Hosted Zone that includes the mail server. This
-      will be used for automatic authorization during the creation process for
-      the LetsEncrypt SSL certificate, so it should match the domain of the
-      primary mail server. For example, if you put "mx1.mail.example.com" as
-      the name of the primary server, then this should be the Hosted Zone ID
-      for the "mail.example.com" zone.'
-    Type: List<AWS::Route53::HostedZone::Id>
+    Description: 'The ID for Route53 Hosted Zone that includes the
+      mail server. This will be used for automatic authorization
+      during the creation process for the LetsEncrypt SSL certificate,
+      so it should match the domain of the primary mail server. For
+      example, if you put "mx1.mail.example.com" as the name of the
+      primary server, then this should be the Hosted Zone ID for
+      the "mail.example.com" zone.'
+    Type: AWS::Route53::HostedZone::Id
   EbsDelPolicy:
     AllowedValues:
       - Delete
@@ -554,13 +533,11 @@ Parameters:
     Description: The MySQL Roundcube database name.
     Type: String
   RoundcubeDBPass:
-    AllowedPattern: ^([a-z0-9A-Z`~!#$%^&*()_+,\\-])*$
+    AllowedPattern: ^([a-z0-9A-Z`~!#$%^&*()_+,\\-]){8,41}$|^$
     ConstraintDescription: "Must be between 8 and 41 characters, including
       letters (upper or lower), numbers, and these special characters
       '_'`~!#$%^&*()_+,-"
     Description: The MySQL password for the roundcube-database user.
-    MaxLength: 41
-    MinLength: 8
     NoEcho: true
     Type: String
   RoundcubeDBUser:
@@ -583,8 +560,11 @@ Parameters:
       assets for this template (e.g., scripts directory, etc... are located)'
     Type: String
   RoundcubeSecurityGroup:
-    Description: Select the Roundcube security group.
-    Type: AWS::EC2::SecurityGroup::Id
+    Default: "default"
+    Description: If webmail is enabled, do not leave as "default"; instead
+      enter the security group ID of the webmail security group (e.g.,
+      sg-0d960aa89192ec08a).
+    Type: String
   SAFinalDest:
     AllowedValues:
       - D_PASS
@@ -643,7 +623,7 @@ Parameters:
     AllowedValues:
       - 450
       - 550
-    Default: 550
+    Default: 450
     Description: What code to send if local lookup on an address fails. Should
       be 550 (reject mail), but is often worth setting to 450 (try again later)
       while you make sure your local_recipient_maps settings are OK.
@@ -683,6 +663,8 @@ Conditions:
   DeployWebmail:
     !Or [!Equals [!Ref DeploymentType, "Primary and webmail"],
          !Equals [!Ref DeploymentType, "Primary, backup, webmail"]]
+  HaveOpenDkimDomains:
+    !Not [!Equals ['', !Ref OpenDkimDomains]]
   EncryptedBoolean:
     !Not [!Equals ['', !Ref Cmk]]
   RoundcubeAcceptFakeSSL:
@@ -737,14 +719,10 @@ Resources:
           !Ref EbsDelPolicy
         LogSize:
           !Ref LogSize
-        LogSnapshot:
-          !Ref BackupLogSnapshot
         SpoolDelPolicy:
           !Ref EbsDelPolicy
         SpoolSize:
           !Ref SpoolSize
-        SpoolSnapshot:
-          !Ref BackupSpoolSnapshot
         SwapSize:
           !Ref SwapSize
       TemplateURL: !Join
@@ -767,19 +745,18 @@ Resources:
           !Ref AccountEmail
         Banner:
           !Ref Banner
-        CertFileDir:
-          !Ref CertFileDir
         CertSource:
           !Ref CertSource
         DNSSleep:
           !Ref DNSSleep
         DNSZone:
-          !Join [',', !Ref DNSZone]
+          !Ref DNSZone
         DatabaseStackName:
           !Ref DatabaseStackName
         EC2KeyName:
           !Ref EC2KeyName
-        EnableOpenDkim: "true"
+        EnableOpenDkim:
+          !If [HaveOpenDkimDomains, "true", "false"]
         EnableSpfChecks: "true"
         ExternalTestEmail:
           !Ref ExternalTestEmail
@@ -804,7 +781,7 @@ Resources:
         MirovoyCFAssetsBucket:
           !Ref MirovoyCFAssetsBucket
         OpenDkimDomains:
-          !Ref OpenDkimDomains
+          !If [HaveOpenDkimDomains, !Ref OpenDkimDomains, "none"]
         Origin:
           !Ref Origin
         PrimaryOrBackup: "primary"
@@ -855,14 +832,12 @@ Resources:
           !Ref AccountEmail
         Banner:
           !Ref Banner
-        CertFileDir:
-          !Ref CertFileDir
         CertSource:
           !Ref CertSource
         DNSSleep:
           !Ref DNSSleep
         DNSZone:
-          !Join [',', !Ref DNSZone]
+          !Ref DNSZone
         DatabaseStackName:
           !Ref DatabaseStackName
         EC2KeyName:
@@ -966,7 +941,10 @@ Resources:
         RoundcubeInstanceType:
           !Ref InstanceType
         RoundcubeSecurityGroup:
-          !Ref RoundcubeSecurityGroup
+          # parameter can't be blank, but if it's not getting deployed,
+          # it's not getting deployed. Stick in the default security group.
+          Fn::If: [DeployWebmail, !Ref RoundcubeSecurityGroup,
+                   'Fn::ImportValue': !Sub '${VpcStackName}:DefaultSecGroup']
         S3KeyPrefix:
           !Ref RoundcubeS3KeyPrefix
         SkelFileDir:
