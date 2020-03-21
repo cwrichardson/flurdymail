@@ -2,7 +2,7 @@
 
 # **Launching A Flurdy Email Server on AWS with CloudFormation**
 
-### Version 0.99.2
+### Version 0.99.3
 (ref [Flurdy 14th edition][flurdy edition], [Jon Jerome])
 
 ---
@@ -37,12 +37,12 @@ CloudFormation].
     - [Dovecot User Query](#dovecot-user-query)
     - [SSL Certificates](#ssl-certificates)
     - [Session Cache](#session-cache)
-    - [Amavis and SpamAssassin](#amavis-and-spamassasin)
+    - [Amavis and SpamAssassin](#amavis-and-spamassassin)
     - [ClamAV](#clamav)
     - [Postgrey](#postgrey)
     - [RoundCube](#roundcube)
-    - [SPF Verification](#extend--spf-verificaiton)
-    - [DKIM](#extent--dkim)
+    - [SPF Verification](#extend---spf-verificaiton)
+    - [DKIM](#extend---dkim)
 - [To Do](#to-do)
 - [Notes](#notes)
 
@@ -517,10 +517,7 @@ approximately equivalent to creating your own CA. The benefit is,
 once everything is working, you can switch the configuration option,
 and get real SSL certificates that will be accepted by people's
 IMAP clients. The downside is, it only works if the primary domain
-for the mail server has DNS hosted in [Route53]. There is an option
-to not install SSL certificates, and another to let you put existing
-certificates in an S3 bucket and install them from there, but neither
-of those options are tested (and probably don't work).
+for the mail server has DNS hosted in [Route53].
 
 SSL certificates are in /etc/pki/dovecot and there are only two in
 the default letsencrypt style, but the names are slightly different
