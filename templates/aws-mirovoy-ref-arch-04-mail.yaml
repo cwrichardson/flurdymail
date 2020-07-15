@@ -1568,6 +1568,7 @@ Resources:
                       - --debug
                       - ''
                   - --config-home /etc/acmesh
+                  - --reloadcmd "systemctl restart dovecot"
                   - --install-cert -d
                   - !Ref ServerName
                   - --cert-file
@@ -1588,6 +1589,22 @@ Resources:
                       - - /etc/pki/dovecot/private/
                         - !Ref ServerName
                         - .key
+            04_crontab_acmesh_upgrade:
+              command: !Join
+                - ' '
+                - - "echo '15 0  *  *  * root"
+                  - "/usr/local/sbin/acme.sh --upgrade --home /usr/local/sbin"
+                  - "--config-home /etc/acmesh'"
+		  - "> /dev/null"
+              test: "! grep acme\.sh.*upgrade /etc/crontab"
+            05_crontab_acmesh:
+              command: !Join
+                - ' '
+                - - "echo '30 0  *  *  * root"
+                  - "/usr/local/sbin/acme.sh --cron --home /usr/local/sbin"
+                  - "--config-home /etc/acmesh'"
+		  - "> /dev/null"
+              test: "! grep acme\.sh.*cron /etc/crontab"
 
         install_mailserver:
           packages:
@@ -1632,7 +1649,10 @@ Resources:
               group: "root"
           commands:
             01_stay_secure:
-              command: "echo 0 0 * * * yum -y update --security >> /etc/crontab"
+              command: !Join
+                - ' '
+                - - "echo '0 0 * * * root"
+                  - "yum -y update --security' >> /etc/crontab"
               test: "! grep yum.*security /etc/crontab"
           services:
             sysvinit:
@@ -3279,6 +3299,7 @@ Resources:
                       - --debug
                       - ''
                   - --config-home /etc/acmesh
+                  - --reloadcmd "systemctl restart postfix"
                   - --install-cert -d
                   - !Ref ServerName
                   - --cert-file
@@ -3299,6 +3320,22 @@ Resources:
                       - - /etc/pki/tls/private/
                         - !Ref ServerName
                         - .key
+            04_crontab_acmesh_upgrade:
+              command: !Join
+                - ' '
+                - - "echo '15 0  *  *  * root"
+                  - "/usr/local/sbin/acme.sh --upgrade --home /usr/local/sbin"
+                  - "--config-home /etc/acmesh'"
+		  - "> /dev/null"
+              test: "! grep acme\.sh.*upgrade /etc/crontab"
+            05_crontab_acmesh:
+              command: !Join
+                - ' '
+                - - "echo '30 0  *  *  * root"
+                  - "/usr/local/sbin/acme.sh --cron --home /usr/local/sbin"
+                  - "--config-home /etc/acmesh'"
+		  - "> /dev/null"
+              test: "! grep acme\.sh.*cron /etc/crontab"
 
         install_mailserver:
           packages:
@@ -3339,7 +3376,10 @@ Resources:
               group: "root"
           commands:
             01_stay_secure:
-              command: "echo 0 0 * * * yum -y update --security >> /etc/crontab"
+              command: !Join
+                - ' '
+                - - "echo '0 0 * * * root"
+                  - "yum -y update --security' >> /etc/crontab"
               test: "! grep yum.*security /etc/crontab"
           services:
             sysvinit:
