@@ -1185,7 +1185,11 @@ Resources:
                 - ''
                 - - "echo UUID=`/usr/sbin/blkid | grep /dev/xvdl "
                   - "| grep -o UUID.*[[:blank:]] "
-                  - "| cut -f2 -d\\\"` /var/log xfs defaults,nofail 0 2"
+                  - "| cut -f2 -d\\\"` /var/log "
+                  - "`/usr/sbin/blkid | grep /dev/xvdl "
+                  - "| grep -o TYPE.* "
+                  - "| cut -f2 -d\\\"` "
+                  - "defaults,nofail 0 2"
                   - " >>/etc/fstab"
               test: !Join
                 - ''
@@ -1260,7 +1264,11 @@ Resources:
                 - ''
                 - - "echo UUID=`/usr/sbin/blkid | grep /dev/xvds "
                   - "| grep -o UUID.*[[:blank:]] "
-                  - "| cut -f2 -d\\\"` /var/spool xfs defaults,nofail 0 2"
+                  - "| cut -f2 -d\\\"` /var/log "
+                  - "`/usr/sbin/blkid | grep /dev/xvds "
+                  - "| grep -o TYPE.* "
+                  - "| cut -f2 -d\\\"` "
+                  - "defaults,nofail 0 2"
                   - " >>/etc/fstab"
               test: !Join
                 - ''
@@ -3074,7 +3082,11 @@ Resources:
                 - ''
                 - - "echo UUID=`/usr/sbin/blkid | grep /dev/xvdl "
                   - "| grep -o UUID.*[[:blank:]] "
-                  - "| cut -f2 -d\\\"` /var/log xfs defaults,nofail 0 2"
+                  - "| cut -f2 -d\\\"` /var/log "
+                  - "`/usr/sbin/blkid | grep /dev/xvdl "
+                  - "| grep -o TYPE.* "
+                  - "| cut -f2 -d\\\"` "
+                  - "defaults,nofail 0 2"
                   - " >>/etc/fstab"
               test: !Join
                 - ''
@@ -3149,7 +3161,11 @@ Resources:
                 - ''
                 - - "echo UUID=`/usr/sbin/blkid | grep /dev/xvds "
                   - "| grep -o UUID.*[[:blank:]] "
-                  - "| cut -f2 -d\\\"` /var/spool xfs defaults,nofail 0 2"
+                  - "| cut -f2 -d\\\"` /var/log "
+                  - "`/usr/sbin/blkid | grep /dev/xvds "
+                  - "| grep -o TYPE.* "
+                  - "| cut -f2 -d\\\"` "
+                  - "defaults,nofail 0 2"
                   - " >>/etc/fstab"
               test: !Join
                 - ''
