@@ -533,8 +533,13 @@ Parameters:
       - m3.medium
       - c5.large
     ConstraintDescription: Must be a valid Amazon EC2 instance type.
-    Default: t3.nano
-    Description: The Amazon EC2 instance type for your web instances.
+    Default: t3.micro
+    Description: The Amazon EC2 instance type for your mail server. This is
+      set to default to t3.micro because that seems to be the minimum to
+      support ClamAV. However, if you're not using ClamAV, you may well be
+      able to turn this down to t3.nano; and if t3.micro works for your 
+      primary server than t3.nano is definitely good enough for your backup
+      server.
     Type: String
   MailSecurityGroup:
     Description: Select the mail security group.
