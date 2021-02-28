@@ -503,27 +503,30 @@ Resources:
             06_install_php_mbsting:
               command: yum install -y php-mbstring
               test: "! yum installed php-mbstring"
-            07_install_mysqli::
+            07_install_mysqli:
               command: yum install -y php-mysqli
-              # test: "! yum installed php-mbstring"
-            08_mkdir_phpmyadmin:
+              test: "! yum installed php-mysqli"
+            08_install_xml:
+              command: yum install -y php-xml
+              test: "! yum installed php-xml"
+            09_mkdir_phpmyadmin:
               command: mkdir /var/www/html/phpMyAdmin
               test: "[ ! -d /var/www/html/phpMyAdmin ]"
-            09_install_phpmyadmin:
+            10_install_phpmyadmin:
               command: !Join [" ",
                               ["tar -zxvf /tmp/phpmyadmin.tgz -C phpMyAdmin",
                                "--strip-components 1"]]
               cwd: /var/www/html/
               test: "[ -d /var/www/html/phpMyAdmin -a -f /tmp/phpmyadmin.tgz ]"
-            10_config_phpmyadmin:
+            11_config_phpmyadmin:
               command: mv /tmp/config.inc.php .
               cwd: /var/www/html/phpMyAdmin
               test: "[ ! -e config.inc.php -a -e /tmp/config.inc.php ]"
-            11_touch_index:
+            12_touch_index:
               # so the loadbalancer correctly detects instance health
               command: touch /var/www/html/index.html
               test: "[ ! -e /var/www/html/index.html ]"
-            12_configure_apache:
+            13_configure_apache:
               command: mv /tmp/zz-phpmyadmin.conf .
               cwd: /etc/httpd/conf.d
               test: "[ -f /tmp/zz-phpmyadmin.conf ]"
