@@ -1608,16 +1608,16 @@ Resources:
                 - - "echo '15 0  *  *  * root"
                   - "/usr/local/sbin/acme.sh --upgrade --home /usr/local/sbin"
                   - "--config-home /etc/acmesh'"
-		  - "> /dev/null"
-              test: "! grep acme\.sh.*upgrade /etc/crontab"
+                  - "> /dev/null"
+              test: "! grep acme\\.sh.*upgrade /etc/crontab"
             05_crontab_acmesh:
               command: !Join
                 - ' '
                 - - "echo '30 0  *  *  * root"
                   - "/usr/local/sbin/acme.sh --cron --home /usr/local/sbin"
                   - "--config-home /etc/acmesh'"
-		  - "> /dev/null"
-              test: "! grep acme\.sh.*cron /etc/crontab"
+                  - "> /dev/null"
+              test: "! grep acme\\.sh.*cron /etc/crontab"
 
         install_mailserver:
           packages:
@@ -3347,16 +3347,16 @@ Resources:
                 - - "echo '15 0  *  *  * root"
                   - "/usr/local/sbin/acme.sh --upgrade --home /usr/local/sbin"
                   - "--config-home /etc/acmesh'"
-		  - "> /dev/null"
-              test: "! grep acme\.sh.*upgrade /etc/crontab"
+                  - "> /dev/null"
+              test: "! grep acme\\.sh.*upgrade /etc/crontab"
             05_crontab_acmesh:
               command: !Join
                 - ' '
                 - - "echo '30 0  *  *  * root"
                   - "/usr/local/sbin/acme.sh --cron --home /usr/local/sbin"
                   - "--config-home /etc/acmesh'"
-		  - "> /dev/null"
-              test: "! grep acme\.sh.*cron /etc/crontab"
+                  - "> /dev/null"
+              test: "! grep acme\\.sh.*cron /etc/crontab"
 
         install_mailserver:
           packages:

@@ -130,6 +130,8 @@ Metadata:
         default: App Subnet 2
       AvailabilityZones:
         default: Availability Zones
+      BastionBanner:
+        default: Bastion banner
       BastionEnvironmentVariables:
         default: Environment Variables
       BastionInstanceType:
@@ -160,6 +162,8 @@ Metadata:
         default: Data Subnet 2
       EC2KeyName:
         default: Existing Key Pair
+      EnableBanner:
+        default: Enable banner
       EnablePhpMyAdmin:
         default: Enable phpMyAdmin
       NatEnvironmentVariables:
@@ -249,7 +253,7 @@ Parameters:
     ConstraintDescription: 'URL must begin with "http".'
     Description: 'URL for an alternative initialization script to run during
       setup. By default, during startup the instances will look in the S3
-      configuration below and run .../<prefix/>scripts/nat_bootstrap.sh.
+      configuration below and run .../<prefix/>scripts/php_bootstrap.sh.
       This should be the full URL to an alternative script.'
     Default: ""
     Type: String
@@ -381,8 +385,6 @@ Parameters:
       (maximum 32)."
     Default: root
     Description: The "root" user to configure for the Amazon RDS database.
-      You can change the username fron "root" if you wish, in optional
-      settings, below.
     MaxLength: 32
     MinLength: 1
     Type: String
