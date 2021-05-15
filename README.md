@@ -173,14 +173,13 @@ which by default spin up none); and an Amazon RDS MySQL server in
 the data subnet in one availability zone.
 
 Additionally, it creates an [Application Load Balancer] (ALB), which
-splits traffic across the Webmail servers (in my live deployments
-these same servers are used for my WordPress hosting) and
-phpMyAdminServers. A single ALB is used for both web and phpMyAdmin,
-and traffic routing is accomplished with [host-based routing]. To
-do this, you must know the DNS name you want to use for each service,
-which you will manually assign to the ALB, later. If you run your
-own DNS somewhere other than AWS, you can do this as a CNAME, or
-if you use Route53, you can create an alias.
+splits traffic across the Webmail servers and phpMyAdminServers. A
+single ALB is used for both web and phpMyAdmin, and traffic routing
+is accomplished with [host-based routing]. To do this, you must
+know the DNS name you want to use for each service, which you will
+manually assign to the ALB, later. If you run your own DNS somewhere
+other than AWS, you can do this as a CNAME, or if you use Route53,
+you can create an alias.
 
 The mail template sets up an [Amazon EC2] (Amazon Elastic Compute
 Cloud) instance running a Flurdy server in one of the public subnets,
@@ -311,8 +310,8 @@ YMMV, and you'll figure out what works best for you.
 
 In order to access the database, you can either ssh through a bastion
 host, or use the phpMyAdmin web interface. In either case, you'll
-need to spin up an auto-scaling instance. Go to EC2 -> Auto Scaling
--> Auto Scaling Groups. Depending on your preference, select either
+need to spin up an auto-scaling instance. Go to `EC2 -> Auto Scaling
+-> Auto Scaling Groups`. Depending on your preference, select either
 the bastion or the phpmyadmin Launch Configuration. Under Actions,
 select Edit, and then change your Desired and Min number of instances
 to 1.
@@ -545,15 +544,16 @@ The result will be something like
 
 `{SHA256-CRYPT}$5$9m8G1.WomxSJUu8K$uu3Ky9Lsoa9XHtmyaNtV./MjAc3GP45Ucxrg5i1PEI8`
 
-You can then take everything after `{SHA256-CRYPT}` (<the hash>)
+You can then take everything after `{SHA256-CRYPT}` (\<the hash\>)
 and add it to the database using the Flurdy syntax:
 
-INSERT INTO users (id,name,maildir,crypt) VALUES
-	('xandros@blobber.org','xandros','xandros/','<the hash>');
+`INSERT INTO users (id,name,maildir,crypt) VALUES
+	('xandros@blobber.org','xandros','xandros/','<the hash>');`
 
 You actually could, and probably should, also include the
 `{SHA256-CRYPT}` as well (i.e., just put the whole output of `dovadm`
-into the database.  For more details, see [Password Storage], below.
+into the database.  For more details, see
+[Password Storage](#password-storage), below.
 
 ### Firewall
 
@@ -635,8 +635,8 @@ use a separate setting for the CAcert.
 
 #### SSL for Web
 
-The SSL certificate for HTTPS are put on an Amazon Application Load
-Balancer (ALB). This certificate come from [AWS Certificate Manager],
+The SSL certificate for HTTPS is put on an Amazon Application Load
+Balancer (ALB). This certificate comes from [AWS Certificate Manager],
 and must be manually generated. Changing this to allow manual
 creation is on the To Do list, but for now, the process is manual.
 The reason is, if you generate new ones via a CloudFormation stack,
@@ -673,7 +673,7 @@ launched.
 
 ### ClamAV
 
-For ClamAV, the only package installed in clamd, which pulls in the
+For ClamAV, the only package installed is clamd, which pulls in the
 other requirements. We grab the virus databases directly, to speed
 up launch, but there’s still a problem with current ClamAV, that
 it takes longer than systemctl allows for a service to start, and
@@ -703,11 +703,11 @@ I'm not actually sure this matters, but the configuration syntax
 for the version of OpenDKIM that gets installed by yum appears to
 have slightly different syntax. Instead of
 
-SOCKET="local:/var/spool/postfix/var/run/opendkim/opendkim.sock"
+`SOCKET="local:/var/spool/postfix/var/run/opendkim/opendkim.sock"`
 
 it is
 
-Socket local:/var/spool/postfix/var/run/opendkim/opendkim.sock
+`Socket local:/var/spool/postfix/var/run/opendkim/opendkim.sock`
 
 ## Notes
 
@@ -724,7 +724,7 @@ distribution moves to that version.
 Dovecot allows you to store passwords with a hint to tell it which
 encryption scheme to use if the default scheme doesn't work, by
 prepending the encryption type in braces (see [dovecot sql
-authentication]. So, for example,
+authentication]). So, for example,
 
 `$5$PgdnNT4KA8Y2djhO$DFV4eHO7U/6SWucFE0PjgsA7ce9PeS4.uCCUVeta717`
 
@@ -830,6 +830,8 @@ with your prefix. Then, underneath that, create
 
 and play 'till your heart's content.
 
+[acme.sh]:https://github.com/Neilpang/acme.sh
+[ALB]: https://aws.amazon.com/elasticloadbalancing/application-load-balancer/
 [Amavis]: https://www.amavis.org
 [Amazon Certificate Manager]: http://docs.aws.amazon.com/acm/latest/userguide/acm-overview.html
 [Amazon EC2]: http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/concepts.html
@@ -856,8 +858,8 @@ and play 'till your heart's content.
 [flurdy]: http://flurdy.com/docs/postfix/
 [flurdy edition]: https://flurdy.com/docs/postfix/index.html#editions
 [flurdy test]: https://flurdy.com/docs/postfix/index.html#test
-[acme.sh]:https://github.com/Neilpang/acme.sh
 [Jon Jerome]: https://xec.net/dovecot-migration/
+[host-basedd routing]: https://aws.amazon.com/blogs/aws/new-host-based-routing-support-for-aws-application-load-balancers/
 [Key Management Service]:https://aws.amazon.com/kms/
 [launch-use2]: https://console.aws.amazon.com/cloudformation/home?region=us-east-2#/stacks/new?stackName=FlurdyEmail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/mail-and-web/latest/aws-mirovoy-ref-arch-mail-master.yaml
 [launch-usw2]: https://console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/new?stackName=FlurdyEmail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/mail-and-web/latest/aws-mirovoy-ref-arch-mail-master.yaml
@@ -865,7 +867,7 @@ and play 'till your heart's content.
 [launch-euc1]: https://console.aws.amazon.com/cloudformation/home?region=eu-central-1#/stacks/new?stackName=FlurdyEmail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/mail-and-web/latest/aws-mirovoy-ref-arch-mail-master.yaml
 [launch-apse2]: https://console.aws.amazon.com/cloudformation/home?region=ap-southeast-2#/stacks/new?stackName=FlurdyEmail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/mail-and-web/latest/aws-mirovoy-ref-arch-mail-master.yaml
 [LetsEncrypt]:https://letsencrypt.org
-[NAT Instance]:https://docs.aws.amazon.com/vpc/latest/userguide/VPC_NAT_Instance.html
+[NAT Instances]:https://docs.aws.amazon.com/vpc/latest/userguide/VPC_NAT_Instance.html
 [Network Load Balancer]:https://docs.aws.amazon.com/elasticloadbalancing/latest/application/introduction.html
 [no good reason]:https://www.juliandunn.net/2018/01/05/whats-amazon-linux-might-use/
 [phpMyAdmin]:https://www.phpmyadmin.net
