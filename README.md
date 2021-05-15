@@ -394,19 +394,126 @@ full details on all parameters, including the nested templates, see
 
 ## Mandatory Parameters
 
-**Parameter:** DeploymentType
-**AllowedValues:**
-- "Primary only"
-- "Primary with phpMyAdmin"
-- "Primary and webmail"
-- "Primary and webmail with phpMyAdmin"
-- "Primary and backup"
-- "Primary, backup, phpMyAdmin"
-- "Primary, backup, webmail, phpMyAdmin"
-**Default:** "Primary, backup, webmail, phpMyAdmin"
-**Description:** Which services to deploy.
-**Type:** String
-**Availability:** master.yaml
+**Deployment Type**: which services to deploy? Can be "Primary",
+which just deploys a standard Flurdy server, or any combination of
+"Primary" along with "phpMyAdmin", "webmail", or "backup". "backup"
+deploys a secondary Flurdy server with the backup configuration
+specified in his docs, otherwise identical to the primary server,
+in the second Availability Zone selected. "webmail" deploys an Auto
+Scaling group with 1 instance activated, which runs Roundcube behind
+the ALB. "phpMyAdmin" likewise deploys an Auto Scaling group, but
+with zero instances activated. In both cases, the web servers deploy
+the service at the root of the URL, and you should point your DNS
+entry to the ALB. So, for example, create an Alias A record for
+`webmail.example.com` that points to the ALB created by the
+`infrastructure` stack. Then, to log into Roundcube, navigate to
+`https://webmail.example.com/". Ditto for phpMyAdmin. As with bastion
+instances, the phpMyAdmin Auto Scaling group should be set back to
+a minimum and target number of instances of zero, once you're done
+using it, to avoid security vulnerabilities.
+
+**AMI ID for Servers**: the Amazon Machine Image that will be used for
+all EC2 instances in the stack. You are welcome to use something other than
+the default, but if you don't use an Amazon Linux 2 image, everything will
+almost certainly break.
+
+Ivar recommends creating an AMI for all your future server uses. I
+used to do that, but maintaining your own images is hard, and they
+don't stay current. This is part of the reason I selected Amazon
+Linux 2 — I'm pretty sure Amazon's engineers are better than me at
+keeping the OS up to date and stable. They may not be as good as
+the broader Linux community that you get with Ubuntu or Debian,
+but, then again, we're not doing anything fancy in userland, except
+for AWS specific stuff, so that's what we most care about being
+current. Ergo, I use Amazon Linux 2. This field is a URL to an
+[Amazon SSM parameter store] for the AMI you want to use. If you
+go look at other CloudFormation templates, they will often use a
+mapping to get a per-region AMI. When I initially wrote this, I
+used that same paradigm, but put in my own AMIs. I changed to this
+method because it seems cleaner. However, this URL resolves to a
+value of type `'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'`.
+If you're using one of the sub-templates diredtly, you can use any
+AMI ID that way. However, at the top level, it must be a URL, which
+is interpreted as a string and passed to the subtemplates. So, if
+you want to use a custom AMI, you have to get an SSM Parameter Store
+ID for it.
+
+**Domain Names**: a comma-separated list of the fully-qualified domain names
+that correspond to the publically accessible servers to be deployed.
+Depending on Deployment Type, above, this may include the FQDNs for your
+primary and backup mail servers, your phpMyAdmin, or your Roundcube servers.
+The list should not include spaces, and order matters. If your Deployment
+Type doesn't deploy one of the servers, just leave the relevant field blank.
+For example, if you are deploying a primary server plus phpMyAdmin, but no 
+backup or webmail, you would put something like
+
+`mx1.example.com,,,phpmyadmin.example.com`
+
+leaving the backup and webmail fields blank.
+
+**Existing Key Pair**: This is the EC2 key pair that you want to
+use to set up the machines (i.e., the key pair for ec2-user). You
+may not want to use this key yourself, but you'll need to keep it
+installed so the stack can still be managed (there's probably some
+way to allow you to upload your own private key to manage the stack,
+but that seems ... silly.  If Amazon has your key, why not just use
+their key?).
+
+You can set up an alternative root user by specifying an alternative
+superuser account to create, later in the configuration.
+
+**Number of Availability Zones**: The number of availability zones across
+which to spread the infrastructure. Right now, this is limited to exactly
+two, because one is not possible with MySQL on RDS (you have to specify at
+least two AZs), and I haven't yet put in the effort to allow selection of
+more than two.
+
+**Availability Zones**: The availability zones in which to deploy the
+infrastructure. You must pick exactly two (see above).
+
+**RDS Database Master Password**: the password for the "root" user of the
+database. You can change the name of the user in the optional parameters.
+
+**Mail Database Password**: the password for the "mail" database user.
+As in the Flurdy documentation, this user is "mail", but you can change
+it in the optional configuration.
+
+**DNS Zone for SSL cert verification**: right now, SSL certificates are
+automatically generated using LetsEncrypt, and validation is done through
+DNS. You must specify the DNS Hosted Zone in which the servers will
+reside in order for authentication to work properly.
+
+**Mirovoy CloudFormation Assets S3 bucket name**: the "bucket" where
+you'll put your helper scripts. This should not be a public bucket.
+S3 URLs look like
+
+`https://<asset-bucket>.s3-<region>.amazonaws.com/<key/prefix/to/stuff>/<stuff>`
+
+Also see [AWS S3 Configuration](#aws-s3-configuration).
+
+### Mandatory when either phpMyAdmin or Webmail are enabled
+
+**ALB Certificate ARN**: if you have either or both phpMyAdmin or
+Webmail set to be enabled, you need to provide an SSL certificate
+for the ALB. This certificate should be generated in the same region
+in which you're deploying.
+
+### Mandatory when Webmail is enabled
+
+**Roundcube Database Password**: the password for the webmail database user.
+
+### Recommended Parameters
+
+**Alternative superuser account to create**
+
+The Linux username for your alternative to the default ec2-user
+that is created. This user will be created on all instances, whether
+the standalone mail servers, or the auto-scaling groups.
+
+**SSH public key for the AdminUser**
+
+The SSH public key for the above user. It's the **public** key, so
+there's no danger in sharing it widely.
 
 # Variances from Flurdy
 
@@ -695,6 +802,33 @@ people on ServerFault and StackOverflow using SHA512 without the
 salt. This seems like a bad idea, so I gave up on doing this with
 MySQL functions and use the `doveadm-pw` utility when I need to
 manually generate paswwords.
+
+### AWS S3 Configuration
+
+This is probably needlessly complex. It's not that complex. But it
+could probably be simpler.
+
+S3 URLs look like
+
+`https://<asset-bucket>.s3-<region>.amazonaws.com/<key/prefix/to/stuff>/<stuff>`
+
+I keep Bastion and NAT scripts in
+
+`https://mirovoy-public.s3-eu-central-1.amazonaws.com/mirovoy-refarch/cf-helpers/latest/[bastion|nat]/[scripts|var]`
+
+So, if you've checked out this repository, but modified the scripts,
+you can put them in your own S3 bucket, and then replace "mirovoy-public"
+with your bucket name, and "mirovoy-refarch/cf-helpers/latest/"
+with your prefix. Then, underneath that, create
+
+* bastion/scripts/bastion_bootstrap.sh
+* bastion/var/banner_message.txt
+* bastion/var/skel/profile
+* bastion/var/skel/shrc
+* nat/scripts/configure-pat.sh
+* nat/scripts/nat_bootstrap.sh
+
+and play 'till your heart's content.
 
 [Amavis]: https://www.amavis.org
 [Amazon Certificate Manager]: http://docs.aws.amazon.com/acm/latest/userguide/acm-overview.html
