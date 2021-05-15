@@ -10,8 +10,8 @@ Metadata:
     Description: Chris Richardson (cwr@mirovoysales.com)
 
   License:
-    Description: 'Copyright 2020 Mirovoy Sales, s.r.o. and its affiliates.
-      All Rights Reserved.
+    Description: 'Copyright 2020-2021 Mirovoy Sales, s.r.o. and its
+      affiliates.  All Rights Reserved.
       SPDX-License-Identifier: MIT-0'
 
   History:
@@ -161,7 +161,7 @@ Metadata:
       CertSource:
         default: Source for SSL certificate(s)
       CFAssetsBucket:
-        default: Mirovvoy CloudFormation Assets S3 bucket name
+        default: Mirovoy CloudFormation Assets S3 bucket name
       DatabaseInstanceType:
         default: Database Instance Class
       DatabaseMasterUsername:
@@ -330,9 +330,7 @@ Parameters:
     Description: Where to get the SSL certificates. By default, certificates
       will be obtained from the LetsEncrypt staging server (fake certs,
       untrusted in the wild). Set to "generate real" to generate real
-      LetsEncrypt certs. Set to "S3" to download certificates from the
-      certificate file directory specified under you S3 bucket/prefix.
-      Set to "none" to manually install your certificates later.
+      LetsEncrypt certs.
     Type: String
   CFAssetsBucket:
     AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
@@ -374,8 +372,6 @@ Parameters:
       (maximum 32)."
     Default: root
     Description: The "root" user to configure for the Amazon RDS database.
-      You can change the username fron "root" if you wish, in optional
-      settings, below.
     MaxLength: 32
     MinLength: 1
     Type: String
