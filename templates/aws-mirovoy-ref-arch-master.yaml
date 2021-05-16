@@ -381,7 +381,9 @@ Parameters:
       these special characters '_'`~!#$%^&*()_+,-"
     Description: The Amazon RDS "root" user password. If you wish to use
       a username other than "root", it can be configured below under
-      AWS MySQL RDS Parameters.
+      AWS MySQL RDS Parameters. Must be between 8 and 41 characters in 
+      length, inclusiv; and must be letters (upper or lower), numbers, and
+      these special characters \'_\'`~!#$%^&*()_+,-
     MaxLength: 41
     MinLength: 8
     NoEcho: true
@@ -465,7 +467,10 @@ Parameters:
     ConstraintDescription: "Must be between 8 and 41 characters, including
       letters (upper or lower), numbers, and these special characters
       '_'`~!#$%^&*()_+,-"
-    Description: The MySQL password for the mail-database user.
+    Description: The MySQL password for the mail-database user. Must be
+      between 8 and 41 characters, inclusive, in length; and, must be
+      letters (upper or lower), numbers, and these special characters
+      '_'`~!#$%^&*()_+,-"
     MaxLength: 41
     MinLength: 8
     NoEcho: true

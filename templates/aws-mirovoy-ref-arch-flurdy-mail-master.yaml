@@ -37,18 +37,23 @@ Metadata:
           - EC2KeyName
           - MailSecurityGroup
           - MailDBPassword
+          - MirovoyCFAssetsBucket
       -
         Label:
           default: Mandatory if Enabled — Webmail
         Parameters:
           - PublicAlbListenerArn
           - RoundcubeSecurityGroup
+          - RoundcubeDBPass
       -
         Label:
           default: Recommended Parameters
         Parameters:
           - AdminUser
           - AdminPubKey
+          - UnknownLocalErrorCode
+          - RootMailRecipient
+          - CertSource
       -
         Label:
           default: Mail Storage Parameters
@@ -78,23 +83,19 @@ Metadata:
           - MailDBBackup
           - RoundcubeDBName
           - RoundcubeDBUser
-          - RoundcubeDBPass
       -
         Label:
           default: Postfix Primary Parameters
         Parameters:
           - Origin
           - Banner
-          - UnknownLocalErrorCode
           - RelayHost
-          - RootMailRecipient
           - InetProtocols
           - OpenDkimDomains
       -
         Label:
           default: SSL Parameters
         Parameters:
-          - CertSource
           - AccountEmail
           - DNSSleep
       -
@@ -117,7 +118,6 @@ Metadata:
         Label:
           default: AWS S3 Configuration
         Parameters:
-          - MirovoyCFAssetsBucket
           - MailS3KeyPrefix
           - RoundcubeS3KeyPrefix
           - SkelFileDir
@@ -186,7 +186,7 @@ Metadata:
       MasterSpoolSnapshot:
         default: MX Master /var/spool Snapshot ID
       MirovoyCFAssetsBucket:
-        default: Mirovvoy CloudFront Assets S3 bucket name
+        default: Mirovoy CloudFront Assets S3 bucket name
       MailS3KeyPrefix:
         default: Mirovoy CloudFront Assets Mail S3 bucket key prefix
       OpenDkimDomains:
@@ -194,7 +194,7 @@ Metadata:
       Origin:
         default: My origin
       PublicAlbListenerArn:
-        default: Public Alb Listener Arn
+        default: Public ALB Listener Arn
       RelayHost:
         default: Send outbound mail via
       RootMailRecipient:
@@ -511,7 +511,10 @@ Parameters:
       "mail.example.com,,webmail.example.com" (without the quotation marks).'
     Type: CommaDelimitedList
   PublicAlbListenerArn:
-    Description: "The public application load balancer listener's arn."
+    Description: "The public application load balancer listener's arn.
+      This is NOT the ARN of the load balancer. Go to EC2 -> Load Balancing
+      -> Load Balancers. Select the desired Load Balancer, and click on the
+      Listeners tab, then copy the Listener ID for HTTPS : 443."
     Type: String
   RelayHost:
     Default: ''
@@ -538,6 +541,9 @@ Parameters:
       letters (upper or lower), numbers, and these special characters
       '_'`~!#$%^&*()_+,-"
     Description: The MySQL password for the roundcube-database user.
+      Must be between 8 and 41 characters, inclusive, in length; and,
+      must be letters (upper or lower), numbers, and these special
+      characters '_'`~!#$%^&*()_+,-"
     NoEcho: true
     Type: String
   RoundcubeDBUser:
@@ -563,7 +569,9 @@ Parameters:
     Default: "default"
     Description: If webmail is enabled, do not leave as "default"; instead
       enter the security group ID of the webmail security group (e.g.,
-      sg-0d960aa89192ec08a).
+      sg-0d960aa89192ec08a). Unlike the Mail Security Group, above, we
+      can't have a drop-down here, because things fail badly if this is left
+      blank, so we have to be able to put something if webmail is not enabled.
     Type: String
   SAFinalDest:
     AllowedValues:

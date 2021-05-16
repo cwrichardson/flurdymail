@@ -33,15 +33,20 @@ Metadata:
           - DatabaseMasterPassword
           - PublicAlbAcmCertificate
           - AMIOS
+          - CFAssetsBucket
       -
         Label:
           default: Recommended Parameters
         Parameters:
           - AdminUser
           - AdminPubKey
+          - CreateMailSecGroup
+          - CreateWebMailSecGroup
+          - EnablePhpMyAdmin
+          - phpDnsName
       -
         Label:
-          default: Amazon VPC Parameters
+          default: Optional Amazon VPC Parameters
         Parameters:
           - VpcCidr
           - VpcTenancy
@@ -53,13 +58,7 @@ Metadata:
           - DataSubnet2Cidr
       -
         Label:
-          default: AWS Security Group Parameters
-        Parameters:
-          - CreateMailSecGroup
-          - CreateWebMailSecGroup
-      -
-        Label:
-          default: Amazon MySQL RDS Parameters
+          default: Optional Amazon MySQL RDS Parameters
         Parameters:
           - DatabaseInstanceType
           - DatabaseMasterUsername
@@ -69,7 +68,7 @@ Metadata:
           - DatabaseRestoreSnapshot
       -
         Label:
-          default: Bastion Configuration
+          default: Optional Bastion Configuration
         Parameters:
           - BastionInstanceType
           - EnableBanner
@@ -79,7 +78,7 @@ Metadata:
           - BastionEnvironmentVariables
       -
         Label:
-          default: NAT Configuration
+          default: Optional NAT Configuration
         Parameters:
           - NatInstanceType
           - NatEnvironmentVariables
@@ -87,19 +86,16 @@ Metadata:
           - AlternativeNatInitializationScript
       -
         Label:
-          default: phpmyadmin Configuration
+          default: Optional phpmyadmin Configuration
         Parameters:
-          - EnablePhpMyAdmin
-          - phpDnsName
           - phpEnvironmentVariables
           - phpInstanceType
           - AlternativePhpIAMRole
           - AlternativePhpInitializationScript
       -
         Label:
-          default: AWS S3 Configuration
+          default: Optional AWS S3 Configuration
         Parameters:
-          - CFAssetsBucket
           - S3BastionKeyPrefix
           - S3NatKeyPrefix
           - S3PhpKeyPrefix
@@ -316,21 +312,27 @@ Parameters:
     Default: "mirovoy-cf-assets"
     Description: 'S3 bucket name for the CloudFormation assets. If you look
       at an S3 URL,
-      it would be "https://<asset-bucke>.s3-<region>.amazonaws.com".'
+      it would be "https://<bucket-name>.s3-<region>.amazonaws.com".'
     Type: String
   CreateMailSecGroup:
     AllowedValues:
       - 'True'
       - 'False'
-    Default: 'True'
-    Description: Create a security group for use by mail servers
+    Default: 'False'
+    Description: If you are using this template and later intend to run
+      the aws-mirovoy-ref-arch-flurdy-mail-master on top of it, set this
+      to true; otherwise, the required security groups will need to be
+      manually configured.
     Type: String
   CreateWebMailSecGroup:
     AllowedValues:
       - 'True'
       - 'False'
-    Default: 'True'
-    Description: Create a security group for use by webmail servers
+    Default: 'False'
+    Description: If you are using this template and later intend to run
+      the aws-mirovoy-ref-arch-flurdy-mail-master on top of it with
+      webmail enabled, set this to true; otherwise, the required security
+      groups will need to be manually configured.
     Type: String
   CreateReplica:
     AllowedValues:
@@ -394,7 +396,9 @@ Parameters:
       these special characters '_'`~!#$%^&*()_+,-"
     Description: The Amazon RDS "root" user password. If you wish to use
       a username other than "root", it can be configured below under
-      AWS MySQL RDS Parameters.
+      AWS MySQL RDS Parameters. Must be between 8 and 41 characters,
+      inclusive, in length; and, must be letters (upper or lower), numbers,
+      and these special characters '_'`~!#$%^&*()_+,-"
     MaxLength: 41
     MinLength: 8
     NoEcho: true
