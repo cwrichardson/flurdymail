@@ -709,6 +709,39 @@ it is
 
 `Socket local:/var/spool/postfix/var/run/opendkim/opendkim.sock`
 
+## To Do
+
+Add backup to S3/Glacier.
+
+Do a better job of checking if Roundcube is a fresh install or needs
+to be updated.
+
+Add LDAP support to Roundcube.
+
+Fix cfn-init.log.
+
+Should have better handling for altadminuser — different shell
+types, ability to add multiple groups (e.g., Flurdy’s japanese-inspired
+groups).
+
+Add ability to create self-signed certs.
+
+Add ability to do Let’s Encrypt validation via Cloudflare in addition
+to Route53.
+
+Allow per-user bayesian filtering (https://wiki.mattrude.com/SpamAssassin)
+
+Allow enabling plus-addressing for spam and viruses (requires setting
+local_domains_maps, presumably pulled from the database)
+
+Allow 3 AZs.
+
+Allow multi-AZ deployments.
+
+Would be nice to get some groupware working. Either add support for
+Kolab, or replace Roundcube with HORDE, so we have calendaring,
+etc….
+
 ## Notes
 
 ### Password Storage
