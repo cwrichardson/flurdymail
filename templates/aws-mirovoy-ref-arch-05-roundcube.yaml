@@ -75,7 +75,7 @@ Metadata:
       AllowFakeCert:
         default: Allow fake certificate from LetsEncrypt
       AllowPasswdChange:
-        default: Enable passowrd plugin
+        default: Enable password plugin
       AlternativeIAMRole:
         default: Alternative IAM Role
       AlternativeInitializationScript:
@@ -349,7 +349,18 @@ Resources:
   RoundcubeAlbTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: RoundcubeTargets
+      Name: !Join
+        - '-'
+        - - 'roundcubeTargets'
+          - !Select
+            - 0
+            - !Split
+              - '-'
+              - !Select
+                - 2
+                - !Split
+                  - '/'
+                  - !Ref 'AWS::StackId'
       Port: 443
       Protocol: HTTPS
       TargetType: instance

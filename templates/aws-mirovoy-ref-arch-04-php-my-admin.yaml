@@ -240,8 +240,18 @@ Resources:
   phpMyAdminAlbTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Join ['', ['phpMyAdminTargets-',
-                        !Select [2, !Split ['-', !Ref 'AWS::StackName']]]]
+      Name: !Join
+        - '-'
+        - - 'phpMyAdminTargets'
+          - !Select
+            - 0
+            - !Split
+              - '-'
+              - !Select
+                - 2
+                - !Split
+                  - '/'
+                  - !Ref 'AWS::StackId'
       Port: 443
       Protocol: HTTPS
       TargetType: instance
