@@ -2,7 +2,7 @@
 AWSTemplateFormatVersion: 2010-09-09
 
 Description: 'Mirovoy Reference Architecture - Create mail servers
-    This template creates a primary mail server that runs courier-postfix
+    This template creates a primary mail server that runs dovecot-postfix
     for inbound and outbound mail, and a backup MX server in a
     separate AZ.'
 
@@ -11,7 +11,7 @@ Metadata:
   Authors:
     Description: Chris Richardson (cwr@mirovoysales.com)
   License:
-    Description: 'Copyright 2018-2019 Mirovoy Sales, s.r.o. and its affiliates.
+    Description: 'Copyright 2018-2021 Mirovoy Sales, s.r.o. and its affiliates.
       All Rights Reserved.
       SPDX-License-Identifier: MIT-0'
 
@@ -2580,35 +2580,27 @@ Resources:
           packages:
             yum:
               clamd: []
-          files:
-            /var/lib/clamav/main.cvd:
-              source: http://database.clamav.net/main.cvd
-              mode: "000644"
-              owner: "amavis"
-              group: "root"
-            /var/lib/clamav/daily.cvd:
-              source: http://database.clamav.net/daily.cvd
-              mode: "000644"
-              owner: "amavis"
-              group: "root"
-            /var/lib/clamav/bytecode.cvd:
-              source: http://database.clamav.net/bytecode.cvd
-              mode: "000644"
-              owner: "amavis"
-              group: "root"
           commands:
             # clamd takes longer to start than systemctl allows by default :(
             # systemctl daemon-reload ?
-            01_give_service_start_extra_time:
-              command: "echo TimeoutSec=5min >> clamd@.service"
-              cwd: /usr/lib/systemd/system
-              test: "[ -f clamd@.service ]"
-            02_enable_clamd_amavisd:
+            01_download_virus_database:
+              command: freshclam
+              test: "which freshclam"
+            # 02_give_service_start_extra_time:
+            #  command: "echo TimeoutSec=5min >> clamd@.service"
+            #  cwd: /usr/lib/systemd/system
+            #  test: "[ -f clamd@.service ]"
+            # 03_reload_daomons:
+            #  command: systemctl daemon-reload
+            04_enable_clamd_amavisd:
               command: systemctl enable clamd@amavisd
-              test: "! systemctl status clamd@amavisd"
+              test: "! systemctl is-enabled clamd@amavisd"
           services:
             sysvinit:
               clamd@amavisd:
+                ensureRunning: !If [DontStart, "false", "true"]
+              clamav-freshclam:
+                enabled: !If [DontStart, "false", "true"]
                 ensureRunning: !If [DontStart, "false", "true"]
 
         restart_amavis:
@@ -2629,7 +2621,7 @@ Resources:
               postgrey: []
           commands:
             01_config_postgrey_max_age:
-              command: sed -i 's/"$/ --max-age=365"/' postgrey
+              command: sed -i '/POSTGREY_OPTS/ s/"$/ --max-age=365"/' postgrey
               cwd: /etc/sysconfig
               test: "[ -f postgrey ]"
             02_add_postgrey_to_postfix:
@@ -2670,9 +2662,9 @@ Resources:
               test: "[[ ! -d /var/spool/postfix/var/run/opendkim ]]"
             04_chown_opendkim_dir:
               command: !Join
-                - ''
-                - - chown opendkim:opendkim /var/spool/postfix/var/run/opendkim
-                  - ''
+                - ' '
+                - - chown -R opendkim:opendkim
+                  - /var/spool/postfix/var/run/opendkim
               test: "[[ -d /var/spool/postfix/var/run/opendkim ]]"
             05_add_postfix_to_opendkim:
               command: usermod -G opendkim postfix
@@ -2760,11 +2752,8 @@ Resources:
         spf_verify:
           packages:
             yum:
-              python3-pip: []
+              pypolicyd-spf: []
           commands:
-            01_install_pypolicyd:
-              command: "pip3 install pypolicyd-spf pyspf py3dns"
-              test: "which pip3"
             02_comment_HELO_reject:
               command: sed -i 's/^HELO_reject/# HELO_reject/' policyd-spf.conf
               cwd: /etc/python-policyd-spf
@@ -2776,14 +2765,14 @@ Resources:
             04_HELO_reject_false:
               command: !Join
                 - ' '
-                - - sed -i '/^# HELO_reject.*/a HELO_reject = False/'
+                - - sed -i '/^# HELO_reject.*/a HELO_reject = False'
                   - policyd-spf.conf
               cwd: /etc/python-policyd-spf
               test: grep "^# HELO_reject"  policyd-spf.conf
             05_Mail_From_false:
               command: !Join
                 - ' '
-                - - sed -i '/^# Mail_From.*/a Mail_From_reject = False/'
+                - - sed -i '/^# Mail_From.*/a Mail_From_reject = False'
                   - policyd-spf.conf
               cwd: /etc/python-policyd-spf
               test: grep "^# Mail_From"  policyd-spf.conf
@@ -2794,7 +2783,8 @@ Resources:
                 - ''
                 - - "echo 'policyd-spf  unix  -       n       n       -"
                   - "       0       spawn' >> master.cf && "
-                  - "echo '   user=policyd-spf argv=/usr/bin/policyd-spf'"
+                  - "echo '   user=policyd-spf "
+                  - "argv=/usr/libexec/postfix/policyd-spf'"
                   - " >> master.cf"
               cwd: /etc/postfix
             08_configure_spf_timeout:

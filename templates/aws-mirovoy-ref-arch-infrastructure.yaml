@@ -151,7 +151,7 @@ Metadata:
       DatabaseMasterPassword:
         default: RDS Database Master Password
       DatabaseRestoreSnapshot:
-        default: Snapshot to restore from
+        default: RDS Database Snapshot from which to restore
       DataSubnet1Cidr:
         default: Data Subnet 1
       DataSubnet2Cidr:
@@ -404,7 +404,12 @@ Parameters:
     NoEcho: true
     Type: String
   DatabaseRestoreSnapshot:
-    Description: The snapshot name to restore from.
+    Description: "When doing a rollover (e.g., red-green swap) between AWS
+      stacks, you can populate the database from a snapshot of the other 
+      RDS instance. If using an automatic snapshot, enter the snapshot name.
+      If using a shared manual snapshot, use the snapshot ARN. NOTE: when
+      restoring from a snapshot, most other database configuration parameters
+      are ignored."
     Type: String
   DataSubnet1Cidr:
     AllowedPattern: '((\d{1,3})\.){3}\d{1,3}/(1[6-9]|2[0-8])'

@@ -2,7 +2,7 @@
 
 # **Launching A Flurdy Email Server on AWS with CloudFormation**
 
-### Version 0.99.3
+### Version 0.99.4
 (ref [Flurdy 14th edition][flurdy edition], [Jon Jerome])
 
 ---
@@ -23,6 +23,7 @@ CloudFormation].
   - [Run The Templates](#run-the-templates)
   - [Populate Your Database](#populate-your-database)
   - [Migration](#migrating-an-existing-flurdyjeremy-server)
+- [Version History](#version-history)
 - [Parameters](#parameters)
 - [Variances from Flurdy](#variances-from-flurdy)
   - [Significant Variances](#significant-variances)
@@ -382,6 +383,20 @@ provided by Flurdy, I found the following resources extremely useful:
 * [Testing IMAP with openssl]
 * [Certificate testing with openssl]
 * [Test spamassassin]
+
+# Version History
+
+* 0.99.4
+	* Change policyd-spf to install with yum
+	* No longer prefetch clamav virus databases
+	* Update Roundcube to 1.4.11
+	* Include php-xml for phpmyadmin builds
+	* Update inline documentation to indicate that the snapshot restore
+	  parameter for Mail storqge takes a snapshot ID, not a name
+	* Fix bug in restore database from snapshot.
+	* Fix bug in postgrey configuration
+* 0.99.3
+	* Initial release to GitHub
 
 # Parameters
 
@@ -889,7 +904,7 @@ and play 'till your heart's content.
 [dovecot password schemes]:https://doc.dovecot.org/configuration_manual/authentication/password_schemes/
 [dovecot sql authentication]:https://doc.dovecot.org/configuration_manual/authentication/sql/#authentication-sql
 [flurdy]: http://flurdy.com/docs/postfix/
-[flurdy edition]: https://flurdy.com/docs/postfix/index.html#editions
+[flurdy edition]: https://flurdy.com/docs/postfix/edition14.html
 [flurdy test]: https://flurdy.com/docs/postfix/index.html#test
 [Jon Jerome]: https://xec.net/dovecot-migration/
 [host-basedd routing]: https://aws.amazon.com/blogs/aws/new-host-based-routing-support-for-aws-application-load-balancers/

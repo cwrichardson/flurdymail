@@ -12,7 +12,7 @@ Metadata:
     Description: Chris Richardson (cwr@mirovoysales.com)
 
   License:
-    Description: 'Copyright 2018-2019 Mirovoy Sales, s.r.o. and its affiliates.
+    Description: 'Copyright 2018-2021 Mirovoy Sales, s.r.o. and its affiliates.
       All Rights Reserved.
       SPDX-License-Identifier: MIT-0'
 
@@ -746,14 +746,14 @@ Resources:
               command: !Join
                 - ''
                 - - 'wget https://github.com/roundcube/roundcubemail/'
-                  - 'releases/download/1.3.10/'
-                  - 'roundcubemail-1.3.10-complete.tar.gz'
+                  - 'releases/download/1.4.11/'
+                  - 'roundcubemail-1.4.11-complete.tar.gz'
               cwd: /tmp
             02_untar_roundcube:
               command: !Join
                 - ''
                 - - 'tar -zxvf /tmp/'
-                  - 'roundcubemail-1.3.10-complete.tar.gz'
+                  - 'roundcubemail-1.4.11-complete.tar.gz'
                   - ' --strip-components 1'
               cwd: /var/www/html
               test: "[ -d /var/www/html ]"
@@ -777,29 +777,36 @@ Resources:
             08_swapon:
               command: swapon /var/swap.1
               test: "[[ ! $(swapon -s) && -f /var/swap.1 ]]"
-            09_compose:
+            09_update_composer:
+              command: !Join
+                - " "
+                - - 'export HOME="/home/ec2-user";'
+                  - 'php composer.phar update'
+              cwd: /var/www/html
+              test: "[ -f composer.phar ]"
+            10_compose:
               command: !Join
                 - " "
                 - - 'export HOME="/home/ec2-user";'
                   - 'php composer.phar install --no-dev'
               cwd: /var/www/html
               test: "[ -f composer.phar ]"
-            10_touch_index:
+            11_touch_index:
               # so the loadbalancer correctly detects instance health
               command: touch /var/www/html/index.html
               test: "[ ! -e /var/www/html/index.html ]"
-            11_configure_apache:
+            12_configure_apache:
               command: mv /tmp/zz-roundcube.conf .
               cwd: /etc/httpd/conf.d
               test: "[ -f /tmp/zz-roundcube.conf ]"
-            12_get_mysql_repo:
+            13_get_mysql_repo:
               command: "yum -y localinstall mysql80.rpm"
               cwd: /tmp
               test: "test -e /tmp/mysql80.rpm"
-            13_install_mysql_client:
+            14_install_mysql_client:
               command: "yum -y install mysql-community-client"
               test: "yum repolist enabled | grep mysql"
-            14_create_roundcube_db:
+            15_create_roundcube_db:
               command: !Join
                 # The aws CLI query to get the secrets from the Secrets
                 # Manager are a little gross here. OK, a lot gross — because
@@ -837,25 +844,25 @@ Resources:
                   - Fn::ImportValue: !Sub
                       '${DatabaseStackName}-MasterDBEndpoint'
                   - " >/dev/null 2>&1 </dev/null)"
-            15_backup_mysql_config:
+            16_backup_mysql_config:
               command: cp mysql.initial.sql mysql.initial.bak
               cwd: /var/www/html/SQL
               test: "test -f mysql.initial.sql"
-            16_dont_overwrite_tables:
+            17_dont_overwrite_tables:
               command: !Join
                 - ''
                 - - "sed -i 's/^CREATE TABLE/CREATE TABLE IF NOT EXISTS/g' "
                   - "mysql.initial.sql"
               cwd: /var/www/html/SQL
               test: "test -f mysql.initial.sql"
-            17_do_overwrite_version:
+            18_do_overwrite_version:
               command: !Join
                 - ''
                 - - "sed -i 's/^INSERT INTO/REPLACE INTO/g' "
                   - "mysql.initial.sql"
               cwd: /var/www/html/SQL
               test: "test -f mysql.initial.sql"
-            18_configure_roundcube_db:
+            19_configure_roundcube_db:
               command: !Join
                 # The aws CLI query to get the secrets from the Secrets
                 # Manager are a little gross here. OK, a lot gross — because
@@ -895,11 +902,11 @@ Resources:
                   - Fn::ImportValue: !Sub
                       '${DatabaseStackName}-MasterDBEndpoint'
                   - " >/dev/null 2>&1 </dev/null)"
-            19_restore_mysql_config:
+            20_restore_mysql_config:
               command: mv mysql.initial.bak mysql.initial.sql
               cwd: /var/www/html/SQL
               test: "test -f mysql.initial.bak"
-            20_create_des_key:
+            21_create_des_key:
               command: !Join
                 # This has to be "secure" and exactly 24 characters, so we
                 # generate some randome characters. Base64 includes alphanum
@@ -909,7 +916,7 @@ Resources:
                   - '/dev/urandom)''`;" config.inc.php'
               cwd: /tmp
               test: "[[ -f config.inc.php ]]"
-            21_url_encode_password:
+            22_url_encode_password:
               # Apparently the password has to be URL encoded ... though I can't
               # find that documented anywhere :(
               command: !Join
@@ -918,11 +925,11 @@ Resources:
                   - "'import urllib; print urllib.quote(raw_input())'`/"
                   - '" config.inc.php'
               cwd: /tmp
-            22_configure_roundcube:
+            23_configure_roundcube:
               command: "mv /tmp/config.inc.php ."
               cwd: /var/www/html/config
               test: "[[ -f /tmp/config.inc.php && ! -f config.inc.php ]]"
-            23_allow_htaccess:
+            24_allow_htaccess:
               # Since Apache 2.4, support for .htaccess is disabled by default
               command: |
                 sed -i '/^<\/Directory>/a\
@@ -931,10 +938,10 @@ Resources:
                 <\/Directory>' ssl.conf
               cwd: /etc/httpd/conf.d
               test: "! grep -l 'AllowOverride all' *.conf"
-            24_fix_permissions:
+            25_fix_permissions:
               command: chown -R apache:apache *
               cwd: /var/www/html
-            25_get_ca_ssl_if_reqd:
+            26_get_ca_ssl_if_reqd:
               command: !If
                 - FakeSSL
                 - !Join
@@ -944,7 +951,7 @@ Resources:
                     - https://letsencrypt.org/certs/fakeleintermediatex1.pem
                 - echo "Fake CA cert chain not required"
               cwd: /tmp
-            25_install_fake_ca_cert:
+            2k_install_fake_ca_cert:
               command: !If
                 - FakeSSL
                 - !Join
@@ -960,7 +967,7 @@ Resources:
                 - echo "Fake CA cert chain not installed"
               cwd: /tmp
               test: "[[ -f fakelerootx1.pem && -f fakeleintermediatex1.pem ]]"
-            26_url_encode_password:
+            27_url_encode_password:
               # Apparently the password has to be URL encoded ... though I can't
               # find that documented anywhere :(
               command: !Join
@@ -969,7 +976,7 @@ Resources:
                   - "'import urllib; print urllib.quote(raw_input())'`/"
                   - '" password.inc.php'
               cwd: /tmp
-            27_grant_roundcube_permissions_on_maildb:
+            28_grant_roundcube_permissions_on_maildb:
               command: !If
                 - InstallPassword
                 - !Join
@@ -1001,14 +1008,14 @@ Resources:
                         !Sub ${DatabaseStackName}-MasterDBEndpoint
                     - " </tmp/setup.password.mysql"
                 - rm /tmp/setup.password.mysql
-            28_enable_password:
+            29_enable_password:
               command: !If
                 - InstallPassword
                 - sed -i "/archive',/a     'password'," config.inc.php
                 - echo "Not enabling password plugin"
               cwd: /var/www/html/config
               test: "[[ -f config.inc.php ]]"
-            28_config_password_plugin:
+            30_config_password_plugin:
               command: !If
                 - InstallPassword
                 - mv /tmp/password.inc.php config.inc.php

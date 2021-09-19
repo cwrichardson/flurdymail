@@ -418,7 +418,9 @@ Parameters:
     ConstraintDescription: Must be a valid Amazon EC2 instance type.
     Default: t3.nano
     Description: The Amazon EC2 instance type for your mail and
-      rouncube instances.
+      rouncube instances. If enabling antivirus scanning, then this should be
+      at least T3 micro. If you need different sizes for any of the three
+      servers, then use the individual templates instead of this stack.
     Type: String
   LogSize:
     ConstraintDescription: Must be an integer.

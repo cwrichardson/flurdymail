@@ -10,7 +10,7 @@ Metadata:
     Description: Chris Richardson (cwr@mirovoysales.com)
 
   License:
-    Description: 'Copyright 2018-2019 Mirovoy Sales, s.r.o. and its affiliates.
+    Description: 'Copyright 2018-2021 Mirovoy Sales, s.r.o. and its affiliates.
       All Rights Reserved.
       SPDX-License-Identifier: MIT-0'
 
@@ -52,7 +52,7 @@ Metadata:
       DatabaseMasterPassword:
         default: DB Master Password
       DatabaseRestoreSnapshot:
-        default: Snapshot to restore from
+        default: RDS Database Snapshot from which to restore
       DatabaseSecurityGroup:
         default: DB Security Group
       CreateReplica:
@@ -117,7 +117,12 @@ Parameters:
     NoEcho: true
     Type: String
   DatabaseRestoreSnapshot:
-    Description: The snapshot name to restore from.
+    Description: "When doing a rollover (e.g., red-green swap) between AWS
+      stacks, you can populate the database from a snapshot of the other 
+      RDS instance. If using an automatic snapshot, enter the snapshot name.
+      If using a shared manual snapshot, use the snapshot ARN. NOTE: when
+      restoring from a snapshot, most other database configuration parameters
+      are ignored."
     Type: String
   DatabaseSecurityGroup:
     Description: Select the database security group.
@@ -185,7 +190,7 @@ Resources:
                                !Ref 'AWS::NoValue']
       Port: 3306
       StorageEncrypted: !Ref DatabaseEncryptedBoolean
-      SnapshotIdentifier: !If [NoSnapshot, !Ref 'AWS::NoValue',
+      DBSnapshotIdentifier: !If [NoSnapshot, !Ref 'AWS::NoValue',
                                !Ref DatabaseRestoreSnapshot]
       Tags:
         - Key: Name

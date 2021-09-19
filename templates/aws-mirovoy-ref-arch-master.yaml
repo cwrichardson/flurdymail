@@ -110,8 +110,8 @@ Metadata:
         Label:
           default: Migration Parameters
         Parameters:
-          - MailDBBackup
           - DatabaseRestoreSnapshot
+          - MailDBBackup
           - MasterSpoolSnapshot
           - MasterLogSnapshot
       -
@@ -169,7 +169,7 @@ Metadata:
       DatabaseMasterPassword:
         default: RDS Database Master Password
       DatabaseRestoreSnapshot:
-        default: Snapshot to restore from
+        default: RDS Database Snapshot from which to restore
       DeploymentType:
         default: Deployment Type
       DNSZone:
@@ -389,7 +389,12 @@ Parameters:
     NoEcho: true
     Type: String
   DatabaseRestoreSnapshot:
-    Description: The snapshot name to restore from.
+    Description: "When doing a rollover (e.g., red-green swap) between AWS
+      stacks, you can populate the database from a snapshot of the other 
+      RDS instance. If using an automatic snapshot, enter the snapshot name.
+      If using a shared manual snapshot, use the snapshot ARN. NOTE: when
+      restoring from a snapshot, most other database configuration parameters
+      are ignored."
     Type: String
   DeploymentType:
     AllowedValues:
@@ -452,9 +457,11 @@ Parameters:
     Type: Number
   MailDBBackup:
     Default: ""
-    Description: A path/to/a/file under your S3 prefix, defined below. It
+    Description: A path/to/a/file under your S3 prefix, defined above. It
       should not start with a slash, and should include the entire filename.
       The file should be the output of mysqldump, and will be fed into mysql.
+      For migration purposes, you should specify either this or the snapshot
+      from which to restore, not both.
     Type: String
   MailDBName:
     AllowedPattern: ^([a-zA-Z0-9]*)$
@@ -498,7 +505,10 @@ Parameters:
       - c5.large
     ConstraintDescription: Must be a valid Amazon EC2 instance type.
     Default: t3.nano
-    Description: primary MX, backup MX, and RoundCube EC2 instance type.
+    Description: primary MX, backup MX, and RoundCube EC2 instance type. If
+      configuring with antivirus support, then this should be at least
+      T3 Micro. If you need different sizes for primary, backup, and
+      webmail, then use individual templates instead of this master template.
     Type: String
   MailStorageCmk:
     Description: 'The Amazon Resource Name (ARN) of an existing AWS KMS
