@@ -112,7 +112,7 @@ parameters. In about 20 minutes, you should have everything up and
 running, and you can go update your DNS entries.
 
 *Caveat emptor*, you should not do this unless you're familiar both
-with the Flurdy email server setup, and AWS CloudFormation.
+with the Flurdy email server setup, and [AWS CloudFormation].
 
 *NB*: You must have a [Route53] Hosted Zone for the domain in which the
 mail servers will be put.
@@ -657,10 +657,10 @@ creation is on the To Do list, but for now, the process is manual.
 The reason is, if you generate new ones via a CloudFormation stack,
 template execution will pause in the middle, while you validate the
 new certificates (which can be done either by email or DNS).  Further,
-if you're using [AWS CloudFormation], you **must** generate or
+if you're using [AWS CloudFront], you **must** generate or
 import the certificate in the US East (N. Virginia) Region (us-east-1).
 The first problem is minor, but the second one is significant. If
-and when ClouFormation supports creation of certificates in other
+and when CloudFront supports creation of certificates in other
 regions, I'll likely update the templates to support certificate
 creation. In the meantime, you must manually create a single
 certificate in your region of choice which covers all of the relevant
@@ -890,6 +890,7 @@ and play 'till your heart's content.
 [Apache]:https://httpd.apache.org
 [Auto Scaling]:http://docs.aws.amazon.com/autoscaling/latest/userguide/WhatIsAutoScaling.html
 [AWS Certificate Manager]: https://aws.amazon.com/certificate-manager/
+[AWS CloudFront]: https://aws.amazon.com/cloudfront/
 [AWS CloudFormation]: http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/Welcome.html
 [AWS KMS Best Practices]:https://d0.awsstatic.com/whitepapers/aws-kms-best-practices.pdf
 [AWS VPC subnetting]:https://docs.aws.amazon.com/vpc/latest/userguide/working-with-vpcs.html
