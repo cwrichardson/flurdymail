@@ -2397,6 +2397,7 @@ Resources:
           packages:
             yum:
               amavis: []
+              perl-DBD-MySQL: []
           files:
             /tmp/amavisd_extra.cf:
               content: !Sub
@@ -2570,6 +2571,34 @@ Resources:
                   - main.cf
               cwd: /etc/postfix
               test: "! grep ^content_filter main.cf"
+            12_connect_amavisd_and_mysql:
+              command: !Join
+                - ''
+                - - "sed -i -e \"/SQLite.*/a "
+                  - "@lookup_sql_dsn =\\n"
+                  - "  ( ['DBI:mysql:database="
+                  - !Ref MailDBName
+                  - ";host="
+                  - Fn::ImportValue: !Sub
+                      '${DatabaseStackName}-MasterDBEndpoint'
+                  - ";port=3306', '"
+                  - !Ref MailDBUser
+                  - "', '"
+                  - !Ref MailDBPassword
+                  - "'] );\\n\\n"
+                  - "\\$sql_select_policy = 'SELECT \"Y\" as local"
+                  - " FROM domains WHERE CONCAT(\"@\",domain) IN (%k)';\\n"
+                  - "\\$sql_select_white_black_list = undef;"
+                  - "  # undef disables SQL white/blacklisting\\n"
+                  - "\\$recipient_delimiter = '+';"
+                  - "            # (default is '+')\\n"
+                  - "\\$replace_existing_extension = 1;"
+                  - "       # (default is false)\\n"
+                  - "\\$localpart_is_case_sensitive = 0;"
+                  - "      # (default is false)\\n\\n\""
+                  - " amavisd.conf"
+              cwd: /etc/amavisd
+              test: "! grep ^@lookup_sql_dsn amavisd.conf"
           services:
             sysvinit:
               amavisd:

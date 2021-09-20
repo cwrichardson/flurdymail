@@ -2,7 +2,7 @@
 
 # **Launching A Flurdy Email Server on AWS with CloudFormation**
 
-### Version 0.99.4
+### Version 0.99.5
 (ref [Flurdy 14th edition][flurdy edition], [Jon Jerome])
 
 ---
@@ -386,6 +386,8 @@ provided by Flurdy, I found the following resources extremely useful:
 
 # Version History
 
+* 0.99.5
+	* Have amavis do sql lookups
 * 0.99.4
 	* Change policyd-spf to install with yum
 	* No longer prefetch clamav virus databases
@@ -726,6 +728,11 @@ it is
 
 ## To Do
 
+Add ability to configure separate DB user and password for amavisd, as
+it can operate with read-only privileges. Probably doesn't matter for now,
+but can't hurt in preparation for allowing for amavisd to operate on 
+a separate instance.
+
 Add backup to S3/Glacier.
 
 Do a better job of checking if Roundcube is a fresh install or needs
@@ -756,6 +763,9 @@ Allow multi-AZ deployments.
 Would be nice to get some groupware working. Either add support for
 Kolab, or replace Roundcube with HORDE, so we have calendaring,
 etc….
+
+~~Have AmavisD do lookups for local domain through the SQL database~~
+(added in 0.99.5)
 
 ## Notes
 
