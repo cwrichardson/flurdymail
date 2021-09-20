@@ -23,6 +23,7 @@ CloudFormation].
   - [Run The Templates](#run-the-templates)
   - [Populate Your Database](#populate-your-database)
   - [Migration](#migrating-an-existing-flurdyjeremy-server)
+- [Testing](#testing)
 - [Version History](#version-history)
 - [Parameters](#parameters)
 - [Variances from Flurdy](#variances-from-flurdy)
@@ -46,6 +47,7 @@ CloudFormation].
     - [DKIM](#extend---dkim)
 - [To Do](#to-do)
 - [Notes](#notes)
+- [Useful Links](#useful-links)
 
 # Introduction
 
@@ -891,6 +893,13 @@ with your prefix. Then, underneath that, create
 * nat/scripts/nat_bootstrap.sh
 
 and play 'till your heart's content.
+
+## Useful Links
+
+In addition to the original documentation from Flurdy and Jon Jerome, and
+the testing links in the Testing section, these other links may be useful:
+
+* configuring amavisd to use SQL [HowtoForge](https://www.howtoforge.com/virtual-users-and-domains-with-postfix-courier-mysql-and-squirrelmail-centos-6.3-x86_64-p4)
 
 [acme.sh]:https://github.com/Neilpang/acme.sh
 [ALB]: https://aws.amazon.com/elasticloadbalancing/application-load-balancer/
