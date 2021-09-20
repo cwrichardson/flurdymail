@@ -2610,18 +2610,10 @@ Resources:
             yum:
               clamd: []
           commands:
-            # clamd takes longer to start than systemctl allows by default :(
-            # systemctl daemon-reload ?
             01_download_virus_database:
               command: freshclam
               test: "which freshclam"
-            # 02_give_service_start_extra_time:
-            #  command: "echo TimeoutSec=5min >> clamd@.service"
-            #  cwd: /usr/lib/systemd/system
-            #  test: "[ -f clamd@.service ]"
-            # 03_reload_daomons:
-            #  command: systemctl daemon-reload
-            04_enable_clamd_amavisd:
+            02_enable_clamd_amavisd:
               command: systemctl enable clamd@amavisd
               test: "! systemctl is-enabled clamd@amavisd"
           services:

@@ -55,7 +55,7 @@ This reference architecture provides a set of YAML templates for
 deploying primary and backup [Flurdy email servers][flurdy] (as
 extended by [Jon Jerome] for Dovecot support) on AWS using [AWS
 CloudFormation]. The servers run [Amazon Linux 2], [Postfix],
-[Dovecot] IMAP, [Amazon RDS MySQL], [Amavis] (amavisd-new with
+[Dovecot] IMAP, [Amazon RDS MySQL], [Amavis] (amavisd with
 SpamAssassin Perl module), [ClamAV], SASL, TLS (with [LetsEncrypt]
 certs), and [Postgrey] with optional additional servers deployed
 for [Roundcube], and [phpMyAdmin], behind [Elastic Load Balancing].
@@ -680,10 +680,15 @@ location.
 
 ### Amavis and SpamAssassin
 
-The amavisd-new config files are not broken out under a conf.d
+AmavisD is no longer amavisd-new, and is now amavisd (again?). Additionally,
+the [IJS home for amavisd](https://www.ijs.si/software/amavisd/) no longer
+seems to be authoritative; having now moved to
+[GitLab](https://gitlab.com/amavis/amavis).
+
+The amavisd config files are not broken out under a conf.d
 directory in the version that Amazon Linux 2 installs. Instead,
 they’re all in one file /etc/amavisd/amavisd.conf. Additionally
-amavisd-new installs SpamAssasin on its own, including setting up
+amavisd installs SpamAssasin on its own, including setting up
 /etc/cron.d/sa-update.  Additionally additionally, amavisd-new now
 calls the SpamAssassin perl library directly, so spamd is no longer
 launched.
@@ -691,10 +696,9 @@ launched.
 ### ClamAV
 
 For ClamAV, the only package installed is clamd, which pulls in the
-other requirements. We grab the virus databases directly, to speed
-up launch, but there’s still a problem with current ClamAV, that
-it takes longer than systemctl allows for a service to start, and
-so we have to add a delay.
+other requirements. We now grab the virus databases early with freshclam
+(see [ClamAV's blog post](https://blog.clamav.net/2021/03/)  from
+February 2021).
 
 ### Postgrey
 
