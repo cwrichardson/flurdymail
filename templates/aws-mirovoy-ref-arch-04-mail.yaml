@@ -2555,7 +2555,7 @@ Resources:
                 - "echo leaving bypass_spam_checks_maps alone"
               cwd: /etc/amavisd
               test: grep "^# \@bypass_virus_checks_maps =" amavisd.conf
-            11_add_amavis_pickup_options:
+            15_add_amavis_pickup_options:
               command: !Join
                 - ''
                 - - "sed -i -e \"/^pickup.*/a"
@@ -2564,14 +2564,14 @@ Resources:
                   - " master.cf"
               cwd: /etc/postfix
               test: grep ^\pickup master.cf
-            12_connect_amavisd_and_postfix:
+            16_connect_amavisd_and_postfix:
               command: !Join
                 - ''
                 - - echo "content_filter = amavis:[127.0.0.1]:10024" >>
                   - main.cf
               cwd: /etc/postfix
               test: "! grep ^content_filter main.cf"
-            12_connect_amavisd_and_mysql:
+            17_connect_amavisd_and_mysql:
               command: !Join
                 - ''
                 - - "sed -i -e \"/SQLite.*/a "
