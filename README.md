@@ -78,7 +78,7 @@ report any problems (or, better, submit patches).
 
 I've been using Ivar Abrahamsen's [excellent Flurdy guide][flurdy]
 for setting up my personal email servers for ... I don't know how
-long. Maybe nine year. Maybe longer. If this is the first time
+long. Maybe nine years. Maybe longer. If this is the first time
 you're setting up an email server (or at least, the first time in
 a long time), I _highly_ recommend you go read his guide. However,
 even with his guide, email is a giant PITA.
@@ -290,7 +290,7 @@ as you may have to play around with things several times to get
 them to work. Waiting 20 minutes every time you make a change gets
 very annoying, very quickly.
 
-Second, modularity. You may run this stack, and find you really
+Second, modularity. You may run this stack and find you really
 like it.  Great! Since you like it, you decide to run other services
 on the infrastructure (e.g., your web servers). Also great! (In
 fact, that's what I do). But if you've deployed this from the highest
@@ -390,6 +390,8 @@ provided by Flurdy, I found the following resources extremely useful:
 
 * 0.99.5
 	* Have amavis do sql lookups
+	* Update the NAT security groups to allow mail (so servers in the
+	  app subnets can email status and alerts and whatnot)
 * 0.99.4
 	* Change policyd-spf to install with yum
 	* No longer prefetch clamav virus databases
