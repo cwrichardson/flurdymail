@@ -407,14 +407,6 @@ Resources:
               owner: "root"
               group: "root"
               authentication: S3AccessCreds
-            /tmp/phpmyadmin.tgz:
-              source: !Join
-                - ''
-                - - "https://www.phpmyadmin.net/downloads/"
-                  - "phpMyAdmin-latest-all-languages.tar.gz"
-              mode: "000600"
-              owner: "root"
-              group: "root"
             /tmp/adminpubkey.pub:
               content: !If
                 - CreateAltAdmin
@@ -519,24 +511,44 @@ Resources:
             08_install_xml:
               command: yum install -y php-xml
               test: "! yum installed php-xml"
-            09_mkdir_phpmyadmin:
+            09_get_new_letsencrypt_root_cert:
+              command: !Join ["",
+                           ["wget -O  isrgrootx1.pem ",
+                            "https://letsencrypt.org/certs/isrgrootx1.pem"]]
+              cwd: /tmp
+            10_update_cert_chain:
+              command: !Join ["",
+                           ["cat /tmp/isrgrootx1.pem >> ",
+                            "/usr/lib/python3.7/site-packages/cfnbootstrap/",
+                            "packages/requests/cacert.pem "]]
+              test: !Join ["",
+                           ["[ -e /tmp/isrgrootx1.pem -a -e ",
+                            "/usr/lib/python3.7/site-packages/cfnbootstrap/",
+                            "packages/requests/cacert.pem ]"]]
+            12_get_phpmyadmin:
+              command: !Join ["",
+                           ["wget -O  phpmyadmin.tgz ",
+                            "https://www.phpmyadmin.net/downloads/",
+                            "phpMyAdmin-latest-all-languages.tar.gz"]]
+              cwd: /tmp
+            12_mkdir_phpmyadmin:
               command: mkdir /var/www/html/phpMyAdmin
               test: "[ ! -d /var/www/html/phpMyAdmin ]"
-            10_install_phpmyadmin:
+            13_install_phpmyadmin:
               command: !Join [" ",
                               ["tar -zxvf /tmp/phpmyadmin.tgz -C phpMyAdmin",
                                "--strip-components 1"]]
               cwd: /var/www/html/
               test: "[ -d /var/www/html/phpMyAdmin -a -f /tmp/phpmyadmin.tgz ]"
-            11_config_phpmyadmin:
+            14_config_phpmyadmin:
               command: mv /tmp/config.inc.php .
               cwd: /var/www/html/phpMyAdmin
               test: "[ ! -e config.inc.php -a -e /tmp/config.inc.php ]"
-            12_touch_index:
+            15_touch_index:
               # so the loadbalancer correctly detects instance health
               command: touch /var/www/html/index.html
               test: "[ ! -e /var/www/html/index.html ]"
-            13_configure_apache:
+            16_configure_apache:
               command: mv /tmp/zz-phpmyadmin.conf .
               cwd: /etc/httpd/conf.d
               test: "[ -f /tmp/zz-phpmyadmin.conf ]"
