@@ -401,6 +401,7 @@ provided by Flurdy, I found the following resources extremely useful:
 	  app subnets can email status and alerts and whatnot)
 	* Set system hostname so Postfix doesn't use the default which is
           the AWS hostname for the private IP address
+	* Disable ConcurrentDatabaseReload on ClamD
 	* Install fail2ban on primary mail server
 * 0.99.4
 	* Change policyd-spf to install with yum
@@ -716,6 +717,13 @@ For ClamAV, the only package installed is clamd, which pulls in the
 other requirements. We now grab the virus databases early with freshclam
 (see [ClamAV's blog post](https://blog.clamav.net/2021/03/)  from
 February 2021).
+
+Also, we disable ConcurrentDatabaseReload. It's on the TODO list to make
+this configurable, as there's no reason to disable it if you have sufficient
+memory; however, with the 1GB of RAM on the micro instance and a 2GB swap,
+you run out of memory when the dstabase is updated, and the server can get
+into a hung state. I haven't experimented with larger swap, but that
+might also be a solution.
 
 ### Postgrey
 

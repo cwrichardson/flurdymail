@@ -2703,7 +2703,14 @@ Resources:
             01_download_virus_database:
               command: freshclam
               test: "which freshclam"
-            02_enable_clamd_amavisd:
+            02_disable_clamd_concurrent_database_reload:
+              command: !Join
+                - ''
+                - - "sed -i -e 's/^#ConcurrentDatabaseReload no/"
+                  - "ConcurrentDatabaseReload no/' scan.conf"
+              cwd: /etc/clamd.d
+              test: grep "^#ConcurrentDatabaseReload no" scan.conf
+            03_enable_clamd_amavisd:
               command: systemctl enable clamd@amavisd
               test: "! systemctl is-enabled clamd@amavisd"
           services:
