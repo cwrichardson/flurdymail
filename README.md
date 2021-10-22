@@ -18,11 +18,13 @@ CloudFormation].
   - [TL;DR](#tldr--launch-the-stack)
   - [Overview](#overview)
 - [Usage](#usage)
-  - [Populate CloudFormation Helpers](#populate-cloudformation-helpers)
-  - [Create an AWS SSL Certificate](#create-an-aws-ssl-certificate)
-  - [Run The Templates](#run-the-templates)
-  - [Populate Your Database](#populate-your-database)
-  - [Migration](#migrating-an-existing-flurdyjeremy-server)
+  - General Instructions
+    - [Populate CloudFormation Helpers](#populate-cloudformation-helpers)
+    - [Create an AWS SSL Certificate](#create-an-aws-ssl-certificate)
+    - [Run The Templates](#run-the-templates)
+    - [Populate Your Database](#populate-your-database)
+    - [Migration](#migrating-an-existing-flurdyjeremy-server)
+  - Migrating an Existing Flurdy/Jeremy Server
 - [Testing](#testing)
 - [Version History](#version-history)
 - [Parameters](#parameters)
@@ -175,7 +177,7 @@ by default spin up one instance per AZ, and one for [Bastion Hosts],
 which by default spin up none); and an Amazon RDS MySQL server in
 the data subnet in one availability zone.
 
-Additionally, it creates an [Application Load Balancer] (ALB), which
+Additionally, it creates an [Application Load Balancer](ALB), which
 splits traffic across the Webmail servers and phpMyAdminServers. A
 single ALB is used for both web and phpMyAdmin, and traffic routing
 is accomplished with [host-based routing]. To do this, you must
@@ -225,10 +227,13 @@ environment up and running:
 2. Create an AWS SSL Certificate for the ALB
 3. Run the templates
 4. Populate your database
+5. Update/Add DNS entries
 
 That's it!
 
-## Populate CloudFormation Helpers
+## General Instructions
+
+### Populate CloudFormation Helpers
 
 In the AWS Region where you want to deploy the environment, create
 the following bucket structure:
@@ -252,7 +257,7 @@ Clone or download this repository.
 
 Populate your new S3 buckets with the files from `mirovoy-cf-assets`.
 
-## Create an AWS SSL Certificate
+### Create an AWS SSL Certificate
 
 1. Go to `Security, Identity, & Compliance -> Certificate Manager`
    in the AWS management console.
@@ -271,7 +276,7 @@ include those as well (e.g., `www.example.com`); however, *NB*: if
 you're going to use CloudFront for your other services, that
 certificate _must_ be created in the us-east-1 region.
 
-## Run the templates
+### Run the templates
 
 The simplest way to run this is to just [execute the master
 template](#tldr--launch-the-stack) from the AWS Region in which you
@@ -309,7 +314,7 @@ For these reasons, the way I actually use this in practice is to
 spin up the `infrastructure` nest, then `flurdy-mail-master` nest.
 YMMV, and you'll figure out what works best for you.
 
-## Populate your database
+### Populate your database
 
 In order to access the database, you can either ssh through a bastion
 host, or use the phpMyAdmin web interface. In either case, you'll
@@ -324,7 +329,7 @@ data](https://flurdy.com/docs/postfix/index.html#data) instructions.
 However, see [Minor variances: encrypted passwords](#encrypted-passwords)
 before you attempt to do so.
 
-## Update DNS entries
+### Update DNS entries
 
 * Add the SPF, DMARC, and DKIM DNS entries.
 * Add a DNS entry for your new backup mail server at a lower priority
@@ -389,9 +394,14 @@ provided by Flurdy, I found the following resources extremely useful:
 # Version History
 
 * 0.99.5
+	* Fix issue with API-based LetsEncrypt SSL verification, so 
+	  phpMyAdmin works [LetsEncrypt X3 expiry explanation]
 	* Have amavis do sql lookups
 	* Update the NAT security groups to allow mail (so servers in the
 	  app subnets can email status and alerts and whatnot)
+	* Set system hostname so Postfix doesn't use the default which is
+          the AWS hostname for the private IP address
+	* Install fail2ban on primary mail server
 * 0.99.4
 	* Change policyd-spf to install with yum
 	* No longer prefetch clamav virus databases
@@ -584,6 +594,9 @@ to provide that functionality, so the entire Firewall section of
 the Flurdy docs can be ignored. As they say, "not essential for an
 EC2 image."
 
+Additionally, it installs fail2ban, and configures it to block some common
+attacks on mail servers.
+
 ### SASL
 
 The entire SASL (Authentication) section of the Flurdy docs can be
@@ -723,6 +736,15 @@ I install python3, and then use pip to install pypolicyd-spf, pyspf,
 and py3dns.  The configuration is in /etc/python-policyd-spf.
 
 ### Extend - DKIM
+
+The version of OpenDKIM we install has slightly different configuration
+than the one on Flurdy, and the configuration file is
+`/etc/opendkim.conf`, not `/etc/default/opendkim`.
+
+In the configuration, we don't configure the `Domains` line, as that
+is not required if we use SigningTable, which Flurdy does (I'm not sure
+why he includes the Domain parameter in the config; maybe a difference
+in OpendDKIM versions).
 
 I'm not actually sure this matters, but the configuration syntax
 for the version of OpenDKIM that gets installed by yum appears to
@@ -941,6 +963,7 @@ the testing links in the Testing section, these other links may be useful:
 [launch-euc1]: https://console.aws.amazon.com/cloudformation/home?region=eu-central-1#/stacks/new?stackName=FlurdyEmail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/mail-and-web/latest/aws-mirovoy-ref-arch-mail-master.yaml
 [launch-apse2]: https://console.aws.amazon.com/cloudformation/home?region=ap-southeast-2#/stacks/new?stackName=FlurdyEmail&templateURL=https://mirovoy-public.s3.eu-central-1.amazonaws.com/mirovoy-refarch/mail-and-web/latest/aws-mirovoy-ref-arch-mail-master.yaml
 [LetsEncrypt]:https://letsencrypt.org
+[LetsEncrypt X3 expiry explanation]:https://letsencrypt.org/docs/dst-root-ca-x3-expiration-september-2021/
 [NAT Instances]:https://docs.aws.amazon.com/vpc/latest/userguide/VPC_NAT_Instance.html
 [Network Load Balancer]:https://docs.aws.amazon.com/elasticloadbalancing/latest/application/introduction.html
 [no good reason]:https://www.juliandunn.net/2018/01/05/whats-amazon-linux-might-use/
