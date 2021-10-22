@@ -903,8 +903,11 @@ Resources:
               ConfigSet: "config_04"
             # EPEL is where PostGrey, ClamAV, and SpamAssasin packages are,
             # so this is the first time we need it
+            # also, we'll add fail2ban now since it's in EPEL, but it really
+            # should be its own config option
             - add_epel
             - config_amavisd
+            - config_fail2ban
           # 04 Disable PostGrey, ClamAV, SpamAssassin
           config_04:
             - get_acmesh
@@ -1683,6 +1686,11 @@ Resources:
               mode: "000644"
               owner: "root"
               group: "root"
+            /etc/hostname:
+              content: !Ref ServerName
+              mode: "000644"
+              owner: "root"
+              group: "root"
             /etc/postfix/mysql_mailbox.cf:
               content:
                 Fn::Sub:
@@ -2088,6 +2096,8 @@ Resources:
               command: rsync -az /tmp/spool/postfix /var/spool/
               cwd: /var/spool
               test: '[[ ! -d postfix ]]'
+            31_set_system_hostname:
+              command: hostname ${ServerName}
           services:
             sysvinit:
               postfix:
@@ -2167,13 +2177,13 @@ Resources:
               test: "! grep ^protocols dovecot.conf"
             03_disable_plaintext_auth:
               command: "sed -i \
-	        's/^#disable_plaintext_auth =/disable_plaintext_auth =/' \
-		10-auth.conf"
+                's/^#disable_plaintext_auth =/disable_plaintext_auth =/' \
+                10-auth.conf"
               cwd: /etc/dovecot/conf.d
               test: "grep ^#disable_plaintext_auth 10-auth.conf"
             04_disable_existing_auth_mech:
               command: "sed -i \
-	        's/^auth_mechanisms =/#auth_mechanisms =/' 10-auth.conf"
+                's/^auth_mechanisms =/#auth_mechanisms =/' 10-auth.conf"
               cwd: /etc/dovecot/conf.d
               test: "grep ^auth_mechanisms 10-auth.conf"
             05_enable_auth_mech:
@@ -2185,8 +2195,8 @@ Resources:
               test: "! grep ^auth_mechanisms 10-auth.conf"
             06_include_auth_sql:
               command: "sed -i \
-	        's/^#!include auth-sql.conf.ext/!include auth-sql.conf.ext/' \
-		10-auth.conf"
+                's/^#!include auth-sql.conf.ext/!include auth-sql.conf.ext/' \
+                10-auth.conf"
               cwd: /etc/dovecot/conf.d
               test: "grep ^#!include.auth-sql.conf.ext 10-auth.conf"
             07_disclude_auth_system:
@@ -2393,6 +2403,72 @@ Resources:
               command: systemctl restart postfix
               test: systemctl status postfix 2>&1 > /dev/null
 
+        config_fail2ban:
+          packages:
+            yum:
+              fail2ban: []
+          files:
+            /etc/fail2ban/jail.d/10-mailserver.conf:
+              content: !Sub |
+                [postfix]
+                logpath = %(postfix_log)s
+                enabled = true
+                
+                [dovecot]
+                logpath = %(dovecot_log)s
+                enabled = true
+                
+                [mailserver]
+                logpath = %(postfix_log)s
+                enabled = true
+              mode: "000644"
+              owner: "root"
+              group: "root"
+
+            /etc/fail2ban/filter.d/mailserver.conf:
+              content: !Sub |
+                # Fail2Ban filter for mirovoy-ref-arch primary mail server
+                #
+                # extends postfix matching for some common abuses
+                #
+                
+                [INCLUDES]
+                
+                # Read common prefixes. If any customizations available -- read them from
+                # common.local
+                before = common.conf
+                
+                [Definition]
+                
+                _daemon = postfix(-\w+)?/\w+(?:/smtp[ds])?
+                _port = (?::\d+)?
+                
+                # help with fail2ban regex development:
+                # https://github.com/fail2ban/fail2ban/wiki/Developing-Regex-in-Fail2ban
+                failregex = ^%(__prefix_line)slost connection after AUTH from \S+\[<HOST>\]$
+                            ^%(__prefix_line)s(?:warning:\s+)?\S+\[<HOST>\]: SASL LOGIN authentication failed: \S+$
+                
+                ignoreregex =
+                
+                [Init]
+                
+                journalmatch = _SYSTEMD_UNIT=postfix.service
+                
+                # Author: Mirovoy Sales
+              mode: "000644"
+              owner: "root"
+              group: "root"
+          commands:
+            01_don_t_use_firewalld:
+              command: mv 00-firewalld.conf 00-firewalld.conf.disabled
+              cwd: /etc/fail2ban/jail.d
+              test: '[[ -f 00-firewalld.conf ]]'
+          services:
+            sysvinit:
+              fail2ban:
+                enabled: !If [DontStart, "false", "true"]
+                ensureRunning: !If [DontStart, "false", "true"]
+
         config_amavisd:
           packages:
             yum:
@@ -2586,8 +2662,8 @@ Resources:
                   - "', '"
                   - !Ref MailDBPassword
                   - "'] );\\n\\n"
-                  - "\\$sql_select_policy = 'SELECT \"Y\" as local"
-                  - " FROM domains WHERE CONCAT(\"@\",domain) IN (%k)';\\n"
+                  - "\\$sql_select_policy = 'SELECT \\\"Y\\\" as local, id"
+                  - " FROM users WHERE id IN (%k)';\\n"
                   - "\\$sql_select_white_black_list = undef;"
                   - "  # undef disables SQL white/blacklisting\\n"
                   - "\\$recipient_delimiter = '+';"
@@ -2599,6 +2675,20 @@ Resources:
                   - " amavisd.conf"
               cwd: /etc/amavisd
               test: "! grep ^@lookup_sql_dsn amavisd.conf"
+            18_listen_on_two_sockets:
+              command: !Join
+                - ''
+                - - "sed -i -e 's/^# $inet_socket_port = \\[/"
+                  - "$inet_socket_port = \\[/' amavisd.conf"
+              cwd: /etc/amavisd
+              test: grep "^# \$inet_socket_port = \[" amavisd.conf
+            19_listen_on_one_socket_off:
+              command: !Join
+                - ''
+                - - "sed -i -e 's/^$inet_socket_port = 10024/"
+                  - "# $inet_socket_port = 10024/' amavisd.conf"
+              cwd: /etc/amavisd
+              test: grep "^\$inet_socket_port = 10024" amavisd.conf
           services:
             sysvinit:
               amavisd:
