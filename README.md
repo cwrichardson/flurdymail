@@ -595,8 +595,16 @@ to provide that functionality, so the entire Firewall section of
 the Flurdy docs can be ignored. As they say, "not essential for an
 EC2 image."
 
-Additionally, it installs fail2ban, and configures it to block some common
-attacks on mail servers.
+Additionally, it installs fail2ban, and configures it to block some
+common attacks on mail servers.
+
+To view the status of fail2ban jails, you can either
+
+`iptables -nvL`
+
+or
+
+`fail2ban-client status [mailserver|postfix|dovecot]`
 
 ### SASL
 
