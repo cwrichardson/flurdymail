@@ -718,12 +718,13 @@ other requirements. We now grab the virus databases early with freshclam
 (see [ClamAV's blog post](https://blog.clamav.net/2021/03/)  from
 February 2021).
 
-Also, we disable ConcurrentDatabaseReload. It's on the TODO list to make
-this configurable, as there's no reason to disable it if you have sufficient
-memory; however, with the 1GB of RAM on the micro instance and a 2GB swap,
-you run out of memory when the dstabase is updated, and the server can get
-into a hung state. I haven't experimented with larger swap, but that
-might also be a solution.
+Also, we disable ConcurrentDatabaseReload. It's on the [TODO
+list](#to-do) to make this configurable, as there's no reason to
+disable it if you have sufficient memory; however, with the 1GB of
+RAM on the micro instance and a 2GB swap, you run out of memory
+when the dstabase is updated, and the server can get into a hung
+state. I haven't experimented with larger swap, but that might also
+be a solution.
 
 ### Postgrey
 
@@ -765,6 +766,11 @@ it is
 `Socket local:/var/spool/postfix/var/run/opendkim/opendkim.sock`
 
 ## To Do
+
+Make turning off of ConcurrentDatabaseReload in ClamD a configurable
+option.
+
+Make fail2ban a config option.
 
 Add ability to configure separate DB user and password for amavisd, as
 it can operate with read-only privileges. Probably doesn't matter for now,
