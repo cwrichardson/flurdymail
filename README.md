@@ -2,7 +2,7 @@
 
 # **Launching A Flurdy Email Server on AWS with CloudFormation**
 
-### Version 0.99.5
+### Version 0.99.6
 (ref [Flurdy 14th edition][flurdy edition], [Jon Jerome])
 
 ---
