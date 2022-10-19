@@ -387,12 +387,31 @@ In addition to the excellent [testing guidelines][flurdy test]
 provided by Flurdy, I found the following resources extremely useful:
 
 * [Test SASL]
+	* Note: the method for creating the Base64 encoded username and 
+	  password described in this article no longer works for me. 
+	  Instead, use `echo -ne '\000user@domain.com\000password' | 
+	  openssl base64`
 * [Testing IMAP with openssl]
 * [Certificate testing with openssl]
 * [Test spamassassin]
+* [Test POP3]
+
+Also, when using LetsEncrypt, I could never get it to completely work 
+with test certifictes (as opposed to real). At a minimum, on whatever 
+machine you're running `openssl` you'll need to download the intermediate
+and root certificates from the [LetsEncrypt staging 
+environment](https://letsencrypt.org/docs/staging-environment/). Then,
+you'll need to tell `openssl` about them with one of `openssl certhash`,
+`openssl rehash`, or `c_rehash`, depending on your OpenSSL installation.
+But, like I said, I still couldn't get that to work. Connection testing
+works fine, but I couldn't send test emails from an external box.
 
 # Version History
 
+* 0.99.6
+	* Upgrade Roundcube to 1.6.0
+		* This also necessitated an upgrade to PHP 8.0 on
+		  the webmail server
 * 0.99.5
 	* Fix issue with API-based LetsEncrypt SSL verification, so 
 	  phpMyAdmin works [LetsEncrypt X3 expiry explanation]
@@ -997,6 +1016,7 @@ the testing links in the Testing section, these other links may be useful:
 [Route53]:https://aws.amazon.com/route53/
 [Simple Server]:http://flurdy.com/docs/ec2/ubuntu/index.html
 [t2vt3]:https://www.cloudsqueeze.ai/amazons-t3-who-should-use-it-when-how-and-the-why/index.html
+[Test POP3]: https://blog.yimingliu.com/2009/01/23/testing-a-pop3-server-via-telnet-or-openssl/
 [Test SASL]: https://www.cs.ait.ac.th/~on/postfix/SASL_README.html#server_test
 [Test spamassassin]:https://spamassassin.apache.org/gtube/gtube.txt
 [Testing IMAP with openssl]:https://tewarid.github.io/2011/05/10/access-imap-server-from-the-command-line-using-openssl.html

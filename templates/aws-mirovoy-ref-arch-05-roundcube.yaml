@@ -298,13 +298,6 @@ Parameters:
       the alternate admin user's home dir, via /etc/skel/. Should end in a
       slash."
     Type: String
-  Skin:
-    AllowedValues:
-      - classic
-      - larry
-    Description: "Skin name. Select from folders in roundcube skins/"
-    Default: larry
-    Type: String
   Subnet:
     Description: Select existing subnets. The number selected must match the
       number of subnets above. Subnets selected must be in separate AZs. You
@@ -549,19 +542,19 @@ Resources:
             # we need php 7 to fix a backwards compatibility issue with
             # MySQL > 8.0.1: https://bugs.php.net/bug.php?id=74461
             01_make_epel_available:
-              command: amazon-linux-extras enable php7.2
+              command: amazon-linux-extras enable php8.0
               test: !Join
                 - ''
                 - - '[[ (! `which php`) || '
                   - '`php --version | head -n 1 | cut -d " " -f 2 | '
-                  - 'cut -c 1,3` -lt 70 ]]'
+                  - 'cut -c 1,3` -lt 80 ]]'
             02_install_php:
               command: yum install -y php
               test: !Join
                 - ''
                 - - '[[ (! `which php`) || '
                   - '`php --version | head -n 1 | cut -d " " -f 2 | '
-                  - 'cut -c 1,3` -lt 70 ]]'
+                  - 'cut -c 1,3` -lt 80 ]]'
             03_install_php_components:
               command: !Join
                 - ''
@@ -571,7 +564,7 @@ Resources:
                 - ''
                 - - '[[ `which php` && '
                   - '`php --version | head -n 1 | cut -d " " -f 2 | '
-                  - 'cut -c 1,3` -ge 70 ]]'
+                  - 'cut -c 1,3` -ge 80 ]]'
         install_roundcube:
           packages:
             yum:
@@ -633,7 +626,7 @@ Resources:
               source: !Join
                 - ''
                 - - https://dev.mysql.com/get/
-                  - mysql80-community-release-el7-2.noarch.rpm
+                  - mysql80-community-release-el7-7.noarch.rpm
               mode: "000600"
               owner: "root"
               group: "root"
@@ -683,7 +676,6 @@ Resources:
                         'archive',
                         'zipdownload',
                     );
-                    $config['skin'] = '${Skin}';
                     $config['imap_conn_options'] = array(
                             'ssl' => array(
                                     'verify_peer_name' => false,
@@ -746,14 +738,14 @@ Resources:
               command: !Join
                 - ''
                 - - 'wget https://github.com/roundcube/roundcubemail/'
-                  - 'releases/download/1.4.11/'
-                  - 'roundcubemail-1.4.11-complete.tar.gz'
+                  - 'releases/download/1.6.0/'
+                  - 'roundcubemail-1.6.0-complete.tar.gz'
               cwd: /tmp
             02_untar_roundcube:
               command: !Join
                 - ''
                 - - 'tar -zxvf /tmp/'
-                  - 'roundcubemail-1.4.11-complete.tar.gz'
+                  - 'roundcubemail-1.6.0-complete.tar.gz'
                   - ' --strip-components 1'
               cwd: /var/www/html
               test: "[ -d /var/www/html ]"
