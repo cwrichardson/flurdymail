@@ -410,6 +410,12 @@ works fine, but I couldn't send test emails from an external box.
 
 * 0.99.6
 	* Upgrade Roundcube to 1.6.0
+		* This is a breaking change — it no longer natively
+		  includes skins, and skins have been removed as a 
+		  configuration parameter here. This means you won't be
+		  able to use CloudFormation's `update` functionality
+		  on the webmail distribution, but will need to delete
+		  it and add a new one.
 		* This also necessitated an upgrade to PHP 8.0 on
 		  the webmail server
 * 0.99.5

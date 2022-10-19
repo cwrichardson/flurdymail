@@ -95,10 +95,6 @@ Description: S3 key prefix for the Mirovoy CloudFormation assets. This should be
 Type: String 
 Default: var/skel/ 
 Description: Path under S3 prefix for shell configuration file to put in the alternate admin user's home dir, via /etc/skel/. Should end in a slash. 
-### Skin 
-Type: String 
-Default: larry 
-Description: Skin name. Select from folders in roundcube skins/ 
 ### Subnet 
 Type: List<AWS::EC2::Subnet::Id>  
 Description: Select existing subnets. The number selected must match the number of subnets above. Subnets selected must be in separate AZs. You should select all Application subnets. 
